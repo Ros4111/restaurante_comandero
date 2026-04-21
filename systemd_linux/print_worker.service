@@ -1,0 +1,28 @@
+[Unit]
+Description=Restaurante - Worker de Cola de Impresión ESC/POS
+After=network.target mysql.service
+Requires=mysql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/restaurante/worker
+ExecStart=/usr/bin/python3 /var/www/restaurante/worker/print_worker.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=print_worker
+
+# Variables de entorno
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/restaurante/env.conf
+
+# Límites de seguridad
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
