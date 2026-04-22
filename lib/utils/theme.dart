@@ -44,6 +44,6 @@ class AppTheme {
       elevation: 0,
       titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorTexto),
     ),
-    dividerColor: Color(0xFF333333),
+    dividerColor: const Color(0xFF333333),
   );
 }

@@ -44,5 +44,5 @@ function logEvent(string $desc, string $level = 'info'): void {
         $db = getDB();
         $st = $db->prepare('INSERT INTO eventos_sistema (descripcion, nivel) VALUES (?,?)');
         $st->execute([$desc, $level]);
-    } catch (Throwable) {}
+    } catch (Throwable $e) {}
 }

@@ -17,7 +17,6 @@ class CatalogoPanel extends StatefulWidget {
 }
 
 class _CatalogoPanelState extends State<CatalogoPanel> {
-  // Pila de navegación de categorías (empieza en raíz = 1)
   final List<Categoria?> _stack = [null]; // null = raíz (idPadre=1)
 
   int get _currentId => _stack.last?.id ?? 1;
@@ -47,12 +46,17 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
               if (hayAtras)
                 TextButton.icon(
                   onPressed: _pop,
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Volver'),
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('Volver', style: TextStyle(fontSize: 15)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               Expanded(
                 child: Text(_stack.last?.nombre ?? 'Menú',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis),
               ),
             ],
@@ -60,9 +64,9 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
         ),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.all(8),
+            padding: EdgeInsets.zero, // SIN padding exterior
             children: [
-              // Subcategorías
+              // Subcategorías — sin icono, sin padding extra
               ...subcats.map((cat) => _CatTile(cat: cat, onTap: () => _push(cat))),
               // Productos
               ...prods.map((p) => _ProdTile(
@@ -85,15 +89,21 @@ class _CatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: AppTheme.colorCategorias,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: ListTile(
-        title: Text(cat.nombre,
-            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-        trailing: const Icon(Icons.chevron_right, color: Colors.white),
-        onTap: onTap,
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        // Sin margin, borde inferior fino como separador
+        decoration: const BoxDecoration(
+          color: AppTheme.colorCategorias,
+          border: Border(bottom: BorderSide(color: Colors.black26, width: 1)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        child: Text(
+          cat.nombre,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -107,21 +117,27 @@ class _ProdTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = p.personalizable ? AppTheme.colorProductoPersonalizable : AppTheme.colorProductoNormal;
-    return Card(
-      color: AppTheme.colorTarjeta,
-      margin: const EdgeInsets.symmetric(vertical: 3),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: color.withValues(alpha:0.4), width: 1)),
-      child: ListTile(
-        title: Text(p.nombre, style: TextStyle(color: color, fontSize: 17)),
-        subtitle: p.personalizable
-            ? const Text('Personalizable · manten pulsado',
-                style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 12))
-            : null,
-        onTap: onTap,
-        onLongPress: onLongPress,
+    final color = p.personalizable
+        ? AppTheme.colorProductoPersonalizable
+        : AppTheme.colorProductoNormal;
+
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.colorTarjeta,
+          border: Border(
+            bottom: const BorderSide(color: Colors.black26, width: 1),
+            left: BorderSide(color: color.withValues(alpha: 0.5), width: 3),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        child: Text(
+          p.nombre,
+          style: TextStyle(color: color, fontSize: 16),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }

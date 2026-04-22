@@ -273,10 +273,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 label: const Text('Cerrar Mesa', style: TextStyle(color: Colors.green, fontSize: 16)),
               ),
           ],
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
         ],
         bottom: _offline || !api.serverReachable
             ? PreferredSize(

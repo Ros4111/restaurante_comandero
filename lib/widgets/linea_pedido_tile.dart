@@ -36,29 +36,34 @@ class LineaPedidoTile extends StatelessWidget {
                 alignment: Alignment.center,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: colorBase.withValues(alpha:0.2),
+                  color: colorBase.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text('${linea.cantidad}',
-                    style: TextStyle(color: colorBase, fontSize: 18, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                        color: colorBase,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   linea.nombreProducto,
-                  style: TextStyle(color: colorBase, fontSize: 17, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                      color: colorBase,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              // Icono mover
+              // Solo muestra icono si la línea se está moviendo de mesa
               if (linea.moverAMesa != null)
                 Tooltip(
                   message: 'Mover a mesa ${linea.moverAMesa}',
-                  child: const Icon(Icons.swap_horiz, color: Colors.orange, size: 20),
+                  child: const Icon(Icons.swap_horiz,
+                      color: Colors.orange, size: 18),
                 ),
-              // Icono editar (indica que se puede pulsar largo)
-              if (onLongPress != null)
-                const Icon(Icons.more_vert, color: AppTheme.colorTextoGris, size: 18),
+              // ELIMINADO: icono more_vert
             ]),
             // Opciones elegidas
             if (linea.opcionesElegidas.isNotEmpty)
@@ -66,11 +71,13 @@ class LineaPedidoTile extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 46, top: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: linea.opcionesElegidas.values.map((v) => Text(
-                    '▸ $v',
-                    style: const TextStyle(
-                        color: AppTheme.colorTextoGris, fontSize: 14),
-                  )).toList(),
+                  children: linea.opcionesElegidas.values
+                      .map((v) => Text(
+                            '▸ $v',
+                            style: const TextStyle(
+                                color: AppTheme.colorTextoGris, fontSize: 14),
+                          ))
+                      .toList(),
                 ),
               ),
             // Comentario

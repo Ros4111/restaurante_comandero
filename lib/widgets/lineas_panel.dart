@@ -78,8 +78,6 @@ class _LineaTile extends StatelessWidget {
                   child: Text(linea.nombreProducto,
                       style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
-                if (!soloLectura)
-                  Icon(Icons.touch_app, color: color.withValues(alpha:0.4), size: 16),
               ],
             ),
             if (linea.opcionesElegidas.isNotEmpty) ...[

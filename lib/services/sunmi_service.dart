@@ -17,76 +17,63 @@ class SunmiService {
   }) async {
     try {
       // ── Cabecera ─────────────────────────────────────────────
+      
       await SunmiPrinter.printText(
-        '*** CONFIRMACION ***',
-        style: SunmiTextStyle(bold: true, align: SunmiPrintAlign.CENTER),
+        'Tu Pedido. Mesa $idMesa',
+        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER,fontSize: 20,reverse: true),
       );
       await SunmiPrinter.printText(
-        'Mesa $idMesa',
-        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER),
+        DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()),
+        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER,fontSize: 18,reverse: false),
       );
       await SunmiPrinter.printText(
-        DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
-        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER),
+        'Le atendió: $camarero',
+        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER,fontSize: 16,reverse: true),
       );
-      await SunmiPrinter.printText(
-        'Camarero: $camarero',
-        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER),
-      );
-      await SunmiPrinter.printText('--------------------------------');
 
       // ── Productos nuevos ──────────────────────────────────────
       if (lineasNuevas.isNotEmpty) {
-        await SunmiPrinter.printText(
-          'NUEVO:',
-          style: SunmiTextStyle(bold: true),
-        );
         for (final l in lineasNuevas) {
           await SunmiPrinter.printText(
-            ' ${l.cantidad}x ${l.nombreProducto}',
-            style: SunmiTextStyle(bold: true),
+            ' ${l.cantidad}x${l.nombreProducto}',
+            style: SunmiTextStyle(bold: true,fontSize: 14),
           );
           for (final opcion in l.opcionesElegidas.values) {
-            await SunmiPrinter.printText('   >> $opcion');
+            await SunmiPrinter.printText('>> $opcion', style: SunmiTextStyle(bold: true,fontSize: 12),);
           }
           if (l.comentario.isNotEmpty) {
-            await SunmiPrinter.printText('   Nota: ${l.comentario}');
+            await SunmiPrinter.printText('Nota: ${l.comentario}', style: SunmiTextStyle(fontSize: 10),);
           }
         }
       }
 
       // ── Cancelados ────────────────────────────────────────────
       if (lineasEliminadas.isNotEmpty) {
-        await SunmiPrinter.printText('--------------------------------');
+        await SunmiPrinter.printText('---------------');
         await SunmiPrinter.printText(
           'CANCELADO:',
           style: SunmiTextStyle(bold: true),
         );
         for (final l in lineasEliminadas) {
-          await SunmiPrinter.printText(' ${l.cantidad}x ${l.nombreProducto}');
+          await SunmiPrinter.printText(' ${l.cantidad}x${l.nombreProducto}');
         }
       }
 
       // ── Movidos ───────────────────────────────────────────────
       if (lineasMovidas.isNotEmpty) {
-        await SunmiPrinter.printText('--------------------------------');
+        await SunmiPrinter.printText('---------------');
         await SunmiPrinter.printText(
           'MOVIDO:',
           style: SunmiTextStyle(bold: true),
         );
         for (final l in lineasMovidas) {
-          await SunmiPrinter.printText(' ${l.cantidad}x ${l.nombreProducto}');
+          await SunmiPrinter.printText(' ${l.cantidad}x${l.nombreProducto}');
           await SunmiPrinter.printText(
               '   Mesa $idMesa -> Mesa ${l.moverAMesa}');
         }
       }
 
       // ── Pie ───────────────────────────────────────────────────
-      await SunmiPrinter.printText('--------------------------------');
-      await SunmiPrinter.printText(
-        '--- FIN ---',
-        style: SunmiTextStyle(align: SunmiPrintAlign.CENTER),
-      );
       await SunmiPrinter.lineWrap(3);
       await SunmiPrinter.cutPaper();
     } catch (e) {
