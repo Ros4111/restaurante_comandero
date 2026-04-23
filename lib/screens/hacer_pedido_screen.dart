@@ -260,10 +260,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
               )
             else
-              TextButton.icon(
-                onPressed: _guardar,
-                icon: const Icon(Icons.save, color: Colors.white),
-                label: const Text('Guardar', style: TextStyle(color: Colors.white, fontSize: 16)),
+              IconButton(
+                onPressed:() {_guardar;
+                Navigator.pop(context);} ,
+                icon: const Icon(Icons.save, color: Colors.white, size: 20),
               ),
             if (sesion.esSupervisor)
               TextButton.icon(
