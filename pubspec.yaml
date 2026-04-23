@@ -17,6 +17,7 @@ dependencies:
   sunmi_printer_plus: ^4.1.1
   intl: ^0.19.0
   connectivity_plus: ^6.0.3
+  package_info_plus: ^8.0.0
 
 dev_dependencies:
   flutter_test:

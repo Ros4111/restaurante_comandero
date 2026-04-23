@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
+import 'package:package_info_plus/package_info_plus.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/catalogo_provider.dart';
@@ -20,11 +20,13 @@ class _MesasScreenState extends State<MesasScreen> {
   List<MesaResumen> _mesas = [];
   bool _loading = true;
   Timer? _refreshTimer;
+String _version = '';
 
   @override
   void initState() {
     super.initState();
     _cargar();
+    _cargarVersion();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _cargar());
   }
 
@@ -33,7 +35,10 @@ class _MesasScreenState extends State<MesasScreen> {
     _refreshTimer?.cancel();
     super.dispose();
   }
-
+Future<void> _cargarVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _version = 'v${info.version}');
+  }
   Future<void> _cargar() async {
     final api = context.read<ApiService>();
     try {
@@ -141,6 +146,26 @@ class _MesasScreenState extends State<MesasScreen> {
       appBar: AppBar(
         title: Text('Mesas · ${sesion.usuario?.nombre ?? ''}'),
         actions: [
+          // ── Versión ──────────────────────────────────────────
+          if (_version.isNotEmpty)
+            Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Text(
+                  _version,
+                  style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
+            ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _cargar),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],

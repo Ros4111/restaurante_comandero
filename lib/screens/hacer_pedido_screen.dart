@@ -55,7 +55,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   Future<void> _cargarPedido() async {
     final api    = context.read<ApiService>();
     final mesaPv = context.read<MesaProvider>();
-    final sesion = context.read<SesionProvider>();
 
     try {
       final data = await api.getPedido(widget.idPedido);

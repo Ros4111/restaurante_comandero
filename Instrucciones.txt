@@ -1,0 +1,274 @@
+PROYECTO: Sistema de Pedidos para Restaurante (Flutter + Raspberry Pi + Sunmi V2 + PHP)
+0 Objetivo
+Vas a diseñar una aplicación completa para un restaurante donde los camareros toman pedidos de los clientes con un teléfono con Android 7.1.2 (Sunmi V2 que incorpora una impresora térmica). Los camareros tomarán nota de los productos solicitados. Toda la información se guardará en un servidor web con Apache y Mysql. Cada nuevo pedido se imprimirá en el teléfono del camarero (para entregar al cliente como prueba de que todo se hizo correctamente) y también será imprimido en la zona de preparación correspondiente (por ejemplo, la bebida será enviada a la impresora instalada en la barra y la comida a la impresora instalada en la cocina. Un producto solo se puede imprimir en una impresora).
+También debes crear el código PHP que se ejecutará en el servidor Web para gestionar toda la información entre la base de datos y los teléfonos Sunmi V2
+
+Debes crear el código para imprimir (con cola de impresión intermedia) en las impresoras de tickets ESC/POS desde la Raspberry Pi.
+Habrá un sistema de bloqueo para que solo 1 usuario modifique una mesa, basado en un campo de hora.
+
+Cuando el camarero cancela un producto ya guardado en otra sesión, se envía a la impresora asignada un mensaje con el nombre del camarero, hora, cantidad y nombre del producto. 
+No es necesario ver el histórico de pedidos de mesas ya cerradas porque se cobraron.
+Se estima que el número máximo de mesas abiertas simultáneamente serán 50.
+Si cae el servidor o el wifi, la aplicación se queda esperando poder volver a conectar mientras espera un mensaje en pantalla “	servidor inaccesible” en la parte superior de la pantalla, permitiendo seguir editando la mesa para sincronizar después.
+________________________________________
+1️⃣ Arquitectura General del Sistema
+Hardware
+•	Router WiFi (red local interna) 
+•	5 × Dispositivos Sunmi V2 (Android 7.1.2) con impresora térmica integrada 
+•	2 × Impresoras de tickets ESC/POS por TCP/IP (conectadas por cable al router) con IP fija asignada
+•	1 × Raspberry Pi 4 con: 
+o	IP fija 
+o	Apache 
+o	PHP 
+o	MySQL 
+o	Certificado HTTPS válido 
+•	Monitor HDMI + teclado + ratón conectados a la Raspberry 
+________________________________________
+Modelo de comunicación
+•	Comunicación HTTPS obligatoria 
+•	Autenticación mediante JWT con duración de 24 h
+•	La Raspberry es: 
+o	Servidor API REST 
+o	Gestor de impresión de barra y cocina 
+o	Fuente única de verdad 
+•	Los móviles: 
+o	Solo gestionan UI y captura de pedidos 
+o	Imprimen ticket de confirmación en su impresora Sunmi 
+o	Nunca imprimen en barra/cocina directamente 
+________________________________________
+2️⃣ Características de la Aplicación Flutter
+Restricciones visuales obligatorias 
+•	Pantalla completa (modo kiosco) 
+•	Sin botones Home ni Back 
+•	Solo orientación vertical 
+•	Tema oscuro: 
+o	Fondo negro 
+o	Texto blanco 
+o	Tamaño grande 
+o	UI moderna y limpia 
+________________________________________
+3️⃣ Base de Datos
+Seguridad
+•	Password almacenado en SHA256 + salt
+•	Estado_mesa es VARCHAR (no ENUM). Los cambios de estado los realiza el camarero de forma manual
+________________________________________
+Tablas principales
+Usuarios
+•	Id_usuario (clave primaria)
+•	Nombre_usuario 
+•	Password (SHA256) 
+•	Permisos (rol) 
+•	Orden  (indica el orden de inserción)
+________________________________________
+Categoria_producto
+•	Id_categoria  (clave primaria)
+•	Id_categoria_padre 
+•	Nombre_categoria 
+•	Nombre_imagen 
+•	Disponible_si_no 
+•	Orden  (indica el orden de inserción)
+________________________________________
+Productos
+•	Id_producto  (clave primaria)
+•	Nombre_producto 
+•	Id_categoria  (un product solo puede estar en una categoría)
+•	Texto_imprimir 
+•	ID_impresora (0 si no imprime) 
+•	Disponible_si_no 
+•	Personalizable_si_no 
+•	Orden  (indica el orden de inserción)
+________________________________________
+Productos_opciones
+•	Id_producto 
+•	Id_grupo_opciones 
+•	Id_opcion  (clave primaria)
+•	Nombre_opcion 
+•	Predeterminado_si_no 
+•	Disponible_si_no 
+•	Orden  (indica el orden de inserción)
+________________________________________
+Grupos_opciones
+•	Id_grupo_opciones  (clave primaria)
+•	Nombre_grupo_opciones 
+•	Disponible_si_no 
+•	Orden  (indica el orden de inserción)
+________________________________________
+Pedido_cabecera
+•	Id_pedido  (clave primaria)
+•	Id_mesa 
+•	Hora_creacion 
+•	Id_usuario_creacion 
+•	Hora_ultima_accion 
+•	Estado_mesa (texto) 
+•	Id_usuario_bloqueo 
+•	Hora_bloqueo 
+________________________________________
+Pedido_detalles
+•	Id_pedido 
+•	Id_linea (auto numérico) (clave primaria)
+•	Id_producto 
+•	Cantidad 
+•	Comentario 
+•	Nombre_producto 
+•	Opciones_elegidas (json con todas las opciones del producto seleccionadas)
+•	Texto_imprimir 
+•	Orden (indica el orden de inserción)
+•	Impreso_si_no 
+________________________________________
+Histórico
+Pedido_cabecera_historico
+Pedido_detalles_historico
+________________________________________
+Registro_de_cambios
+•	Id_linea  (auto numérico) (clave primaria)
+•	Fecha_Hora_cambio 
+•	Id_usuario 
+•	Tipo_accion (añadir, borrar, cambio mesa) 
+•	JSON_cambio 
+________________________________________
+Impresoras
+•	Id_impresora  (clave primaria)
+•	IP 
+•	Nombre_impresora
+________________________________________
+Eventos_sistema
+•	ID_evento (autonumerico) (clave primaria)
+•	Fecha_hora 
+•	Descripcion_evento 
+________________________________________
+4️⃣ Flujo de Inicio de Aplicación
+1.	Se busca archivo local de configuración con IP del servidor. 
+2.	Si está vacío: 
+o	Pantalla para introducir IP 
+o	Botón “Guardar” 
+o	Solo guarda si conexión HTTPS exitosa 
+3.	Si existe IP: 
+o	Solicita lista de usuarios al servidor 
+o	Si falla conexión tras 3 intentos: 
+	Mensaje: “Imposible conectar con el servidor” 
+	Botones: Reintentar / Configurar 
+________________________________________
+5️⃣ Login
+•	Usuario selecciona nombre de la lista
+•	Introduce contraseña 
+•	Se valida en servidor 
+•	Se recibe JWT 
+•	Se descargan: 
+o	Categorías 
+o	Productos 
+o	Opciones 
+o	Impresoras 
+Se almacenan en memoria local del teléfono.
+________________________________________
+6️⃣ Pantalla de Mesas
+Contiene:
+•	Botón “Abrir” 
+•	Listado de mesas existentes (Pedido_cabecera) 
+Pulsar:
+•	“Abrir” → solicita número mesa 
+•	Mesa del listado → abre directamente la mesa pulsada
+________________________________________
+7️⃣ Sistema de Bloqueo de Mesa
+Cuando un camarero entra:
+•	Se bloquea inmediatamente Pedido_cabecera
+•	Se actualiza: 
+o	Id_usuario_bloqueo 
+o	Hora_bloqueo 
+Si otro camarero entra:
+•	Puede ver pedido pero:
+o	Modo solo lectura 
+o	Mensaje: “Mesa bloqueada por X usuario” 
+Cada minuto:
+•	Se envía ping al servidor desde el camarero que abrió primero la mesa
+•	Se actualiza Hora_bloqueo para que pasados 3 minutos no se desbloquee automaticamente
+Si pasan 3 minutos sin ping:
+•	Mesa queda automáticamente desbloqueada
+En el servidor se comprobará que los permisos para realizar algún cambio en una mesa no han caducado, por si el teléfono perdió la conexión Wifi por más de 3 minutos y otro usuario adquirió los permisos para realizar cambios.
+Un super usuario tiene permisos para expulsar a otro usuario de una mesa
+________________________________________
+8️⃣ Pantalla “hacer_pedido”
+Pantalla dividida en 2 columnas verticales:
+Derecha:
+Listado de productos del pedido
+•	Productos antiguos: blanco 
+•	Nuevos añadidos: rojo 
+________________________________________
+Izquierda:
+Listado dinámico:
+Primer nivel:
+•	Categorías con id_categoria_padre = 1
+•	Productos con id_categoria = 1
+Al pulsar una categoría se muestran:
+•	Subcategorías 
+•	Productos disponibles 
+Siempre aparece:
+•	“Volver” para volver al nivel superior al acceder a cualquier subcategoría. 
+Colores:
+•	Categorías → azul 
+•	Productos normales → blanco 
+•	Productos personalizables → rojo 
+________________________________________
+9️⃣ Añadir Producto
+Click simple:
+•	Añade producto seleccionado de la izquierda a la lista de la derecha
+Click largo:
+•	Ventana emergente: 
+o	Opciones agrupadas (si las hay) con el valor predeterminado ya seleccionado. En cada grupo de opciones hay que elegir un y solo un valor siempre. Todos los grupos de opciones son obligatorios, por lo que el camarero no podrá borrar la opción predeterminada ni ninguna de las elegidas por él mismo.
+o	Cantidad
+o	Comentario
+o	Botones Cancelar / Añadir 
+________________________________________
+🔟 Editar Producto (lado derecho)
+Click largo:
+Si es producto nuevo:
+•	Cambiar cantidad 
+•	Modificar comentario 
+•	Eliminar 
+•	Mover a otra mesa 
+Si es producto antiguo:
+•	Solo se puede hacer 2 cosas:
+o	Eliminar (si permiso) 
+o	Mover de mesa (si permiso) (se imprime una nota en la impresora de tickets notificando el cambio de mesa). “Id_linea” nunca cambia pero “orden” cambia para que quede al final de la lista.	
+________________________________________
+1️⃣1Guardado y Cierre
+Al cerrar pantalla:
+•	Se envían todos los productos al servidor 
+•	En el servidor: 
+o	Detecta cambios 
+o	Genera Registro_de_cambios 
+o	Envía impresión a barra/cocina 
+o	Marca Impreso_si_no = 1 después de Conexión exitosa + envío sin excepción 
+Nunca se reimprime producto ya impreso sin cambios.
+Para detectar los cambios, el servidor comparará todas las líneas del pedido con la base de datos gracias al campo Id_linea. Localizada la misma línea de la base de datos, comparará si se borró, se cambió cantidad o el comentario. Después de guardar los cambios, se imprimirá en la impresora correspondiente.
+________________________________________
+1️⃣2️Impresión
+En Sunmi
+Se imprime:
+•	Mesa 
+•	Hora 
+•	Camarero 
+•	Productos añadidos, movidos o eliminados
+•	Comentarios 
+•	Opciones 
+Usando librería:
+sunmi_printer_plus
+________________________________________
+En Barra / Cocina
+•	Raspberry envía ESC/POS por TCP/IP 
+•	Si error → se registra en Eventos_sistema 
+________________________________________
+1️⃣3️Movimiento entre Mesas
+Si mesa destino no existe:
+•	Crear nuevo pedido 
+Si existe:
+•	Añadir línea al final
+
+
+Crea:
+Código para el backoffice en PHP completo estructurado por archivos listo para copiar 
+•  🔹 Script SQL completo listo para ejecutar 
+•  🔹 Servicio systemd para el worker 
+•  🔹 Parte Flutter arquitectura offline-first 
+•  🔹 Optimización avanzada anti-concurrencia
+
+Código para el fronoffice en Flutter completo estructurado por archivos listo para copiar (si es posible crea un zip con todos los archivos del proyecto en sus carpetas correspondientes)

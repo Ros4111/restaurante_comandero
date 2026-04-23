@@ -125,14 +125,13 @@ class _ProdTile extends StatelessWidget {
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppTheme.colorTarjeta,
           border: Border(
-            bottom: const BorderSide(color: Colors.black26, width: 1),
-            left: BorderSide(color: color.withValues(alpha: 0.5), width: 3),
+            bottom: BorderSide(color: Colors.black26, width: 1),
           ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Text(
           p.nombre,
           style: TextStyle(color: color, fontSize: 16),
