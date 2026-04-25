@@ -10,7 +10,6 @@ import '../utils/theme.dart';
 import '../widgets/catalogo_panel.dart';
 import '../widgets/lineas_panel.dart';
 import '../widgets/producto_opciones_dialog.dart';
-import '../widgets/editar_linea_dialog.dart';
 import 'package:restaurante_tpv/services/sunmi_service.dart';
 
 class HacerPedidoScreen extends StatefulWidget {
@@ -83,8 +82,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
   }
 
-  Future<void> _guardar() async {
-    if (_guardando) return;
+  Future<bool> _guardar() async {
+    if (_guardando) return false;
     final api    = context.read<ApiService>();
     final mesaPv = context.read<MesaProvider>();
     final sesion = context.read<SesionProvider>();
@@ -114,6 +113,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
             const SnackBar(content: Text('✓ Pedido guardado'),
                 backgroundColor: Colors.green));
       }
+      return true;
     } on ApiException catch (e) {
       if (e.statusCode == 409) {
         _showError('Bloqueo perdido: ${e.message}');
@@ -128,6 +128,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
+    return false;
   }
 
   void _scheduleRetryGuardar() {
@@ -184,20 +185,26 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       builder: (_) => ProductoOpcionesDialog(producto: p, grupos: grupos, catalogo: catalogo),
     );
     if (result == null) return;
+    final opciones = Map<int, OpcionElegida>.from(result['opciones'] as Map);
     _addProducto(p,
         cantidad: result['cantidad'],
         comentario: result['comentario'],
-        opciones: result['opciones']);
+        opciones: opciones);
   }
 
-  Map<int, String> _defaultOpciones(Producto p) {
+  Map<int, OpcionElegida> _defaultOpciones(Producto p) {
     final catalogo = context.read<CatalogoProvider>();
     final grupos   = catalogo.gruposDeProducto(p.id);
-    final Map<int, String> defaults = {};
+    final Map<int, OpcionElegida> defaults = {};
     for (final g in grupos) {
       final opts = catalogo.opcionesDeGrupo(p.id, g.id);
       final def  = opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
-      if (def != null) defaults[g.id] = def.nombre;
+      if (def != null) {
+        defaults[g.id] = OpcionElegida(
+          nombre: def.nombre,
+          predeterminado: def.predeterminado,
+        );
+      }
     }
     return defaults;
   }
@@ -205,7 +212,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   void _addProducto(Producto p,
       {required int cantidad,
       required String comentario,
-      required Map<int, String> opciones}) {
+      required Map<int, OpcionElegida> opciones}) {
     final mesaPv = context.read<MesaProvider>();
     mesaPv.agregarLinea(LineaPedido(
       idProducto: p.id,
@@ -220,9 +227,27 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   void onLineaTap(LineaPedido linea) async {
     if (context.read<MesaProvider>().soloLectura) return;
+    final catalogo = context.read<CatalogoProvider>();
+    final producto = catalogo.productos
+        .where((p) => p.id == linea.idProducto)
+        .firstOrNull;
+    if (producto == null) {
+      _showError('No se pudo abrir el editor del producto');
+      return;
+    }
+    final grupos = catalogo.gruposDeProducto(producto.id);
+
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (_) => EditarLineaDialog(linea: linea, idMesa: widget.idMesa),
+      builder: (_) => ProductoOpcionesDialog(
+        producto: producto,
+        grupos: grupos,
+        catalogo: catalogo,
+        cantidadInicial: linea.cantidad,
+        comentarioInicial: linea.comentario,
+        opcionesIniciales: linea.opcionesElegidas,
+        modoEdicion: true,
+      ),
     );
     if (result == null) return;
     final mesaPv = context.read<MesaProvider>();
@@ -231,10 +256,37 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     } else if (result['accion'] == 'mover') {
       mesaPv.modificarLinea(linea, moverAMesa: result['mesa_destino']);
     } else {
+      final nuevasOpciones = result['opciones'] != null
+          ? Map<int, OpcionElegida>.from(result['opciones'] as Map)
+          : linea.opcionesElegidas;
+      final nuevaCantidad = result['cantidad'] as int;
+      final nuevoComentario = result['comentario'] as String;
+      final hayCambios = nuevaCantidad != linea.cantidad ||
+          nuevoComentario != linea.comentario ||
+          !_opcionesIguales(linea.opcionesElegidas, nuevasOpciones);
+
       mesaPv.modificarLinea(linea,
-          cantidad: result['cantidad'],
-          comentario: result['comentario']);
+          cantidad: nuevaCantidad,
+          comentario: nuevoComentario,
+          opcionesElegidas: nuevasOpciones,
+          marcarEditada: hayCambios);
     }
+  }
+
+  bool _opcionesIguales(
+    Map<int, OpcionElegida> a,
+    Map<int, OpcionElegida> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      final other = b[entry.key];
+      if (other == null) return false;
+      if (other.nombre != entry.value.nombre ||
+          other.predeterminado != entry.value.predeterminado) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @override
@@ -254,17 +306,21 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
               backgroundColor: Colors.orange[800],
             )
           else ...[
-            if (_guardando)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-              )
-            else
-              IconButton(
-                onPressed:() {_guardar;
-                Navigator.pop(context);} ,
-                icon: const Icon(Icons.save, color: Colors.white, size: 20),
+            IconButton(
+              onPressed: _guardando
+                  ? null
+                  : () async {
+                      final guardadoOk = await _guardar();
+                      if (guardadoOk && mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
+              icon: Icon(
+                Icons.save,
+                color: _guardando ? Colors.red : Colors.white,
+                size: 20,
               ),
+            ),
             if (sesion.esSupervisor)
               TextButton.icon(
                 onPressed: _cerrarMesa,
@@ -295,7 +351,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         children: [
           // ── Columna izquierda: catálogo ────────────────────
           Expanded(
-            flex: 5,
+            flex: 1,
             child: mesaPv.soloLectura
                 ? const Center(child: Text('Modo solo lectura',
                     style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 18)))
@@ -307,7 +363,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           const VerticalDivider(width: 1, color: Color(0xFF333333)),
           // ── Columna derecha: líneas del pedido ─────────────
           Expanded(
-            flex: 4,
+            flex: 1,
             child: LineasPanel(
               lineas: mesaPv.lineas,
               soloLectura: mesaPv.soloLectura,

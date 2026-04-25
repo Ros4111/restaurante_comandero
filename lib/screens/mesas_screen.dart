@@ -221,6 +221,13 @@ class _MesaTile extends StatelessWidget {
 
   const _MesaTile({required this.mesa, required this.sesion, required this.onTap});
 
+  String _hhmm(String? value) {
+    if (value == null || value.isEmpty) return '--:--';
+    final timePart = value.contains(' ') ? value.split(' ').last : value;
+    if (timePart.length >= 5) return timePart.substring(0, 5);
+    return '--:--';
+  }
+
   @override
   Widget build(BuildContext context) {
     final bloqueadaPorOtro = mesa.idUsuarioBloqueo != null &&
@@ -243,13 +250,15 @@ class _MesaTile extends StatelessWidget {
           children: [
             Text('${mesa.idMesa}',
                 style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(mesa.estado,
                 style: const TextStyle(fontSize: 13, color: AppTheme.colorTextoGris)),
-            Text('${mesa.totalLineas} líneas',
+            const SizedBox(height: 2),
+            Text(
+                '${_hhmm(mesa.horaCreacion)} -- ${_hhmm(mesa.horaUltimaAccion)}',
                 style: const TextStyle(fontSize: 13, color: AppTheme.colorTextoGris)),
             if (bloqueadaPorOtro) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Icon(Icons.lock, color: Colors.orange, size: 14),
                 const SizedBox(width: 4),

@@ -66,12 +66,12 @@ class LineaPedidoTile extends StatelessWidget {
               // ELIMINADO: icono more_vert
             ]),
             // Opciones elegidas
-            if (linea.opcionesElegidas.isNotEmpty)
+            if (linea.opcionesNoPredeterminadas.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(left: 46, top: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: linea.opcionesElegidas.values
+                  children: linea.opcionesNoPredeterminadas
                       .map((v) => Text(
                             '▸ $v',
                             style: const TextStyle(

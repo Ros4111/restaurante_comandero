@@ -7,7 +7,7 @@ import '../utils/theme.dart';
 
 class OpcionesDialog extends StatefulWidget {
   final Producto producto;
-  final Map<int, String> gruposInicialesOpciones; // idGrupo -> nombre opcion seleccionada
+  final Map<int, OpcionElegida> gruposInicialesOpciones; // idGrupo -> opción seleccionada
 
   const OpcionesDialog({
     super.key,
@@ -20,7 +20,7 @@ class OpcionesDialog extends StatefulWidget {
 }
 
 class _OpcionesDialogState extends State<OpcionesDialog> {
-  late Map<int, String> _opcionesElegidas;
+  late Map<int, OpcionElegida> _opcionesElegidas;
   int _cantidad = 1;
   final _comentarioCtrl = TextEditingController();
 
@@ -43,8 +43,8 @@ class _OpcionesDialogState extends State<OpcionesDialog> {
     return grupos.every((g) => _opcionesElegidas.containsKey(g.id));
   }
 
-  void _seleccionarOpcion(int idGrupo, String nombreOpcion) {
-    setState(() => _opcionesElegidas[idGrupo] = nombreOpcion);
+  void _seleccionarOpcion(int idGrupo, OpcionElegida opcion) {
+    setState(() => _opcionesElegidas[idGrupo] = opcion);
   }
 
   @override
@@ -80,7 +80,7 @@ class _OpcionesDialogState extends State<OpcionesDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: grupos.map((grupo) {
                       final opts = catalogo.opcionesDeGrupo(widget.producto.id, grupo.id);
-                      final elegida = _opcionesElegidas[grupo.id];
+                      final elegida = _opcionesElegidas[grupo.id]?.nombre;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16),
                         child: Column(
@@ -98,7 +98,13 @@ class _OpcionesDialogState extends State<OpcionesDialog> {
                               children: opts.map((op) {
                                 final sel = elegida == op.nombre;
                                 return GestureDetector(
-                                  onTap: () => _seleccionarOpcion(grupo.id, op.nombre),
+                                  onTap: () => _seleccionarOpcion(
+                                    grupo.id,
+                                    OpcionElegida(
+                                      nombre: op.nombre,
+                                      predeterminado: op.predeterminado,
+                                    ),
+                                  ),
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 150),
                                     padding: const EdgeInsets.symmetric(

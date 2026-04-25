@@ -38,7 +38,7 @@ class SunmiService {
             '${l.cantidad}x${l.nombreProducto}',
             style: SunmiTextStyle(bold: true,fontSize: 35,reverse: false),
           );
-          for (final opcion in l.opcionesElegidas.values) {
+          for (final opcion in l.opcionesNombres) {
             await SunmiPrinter.printText('>> $opcion', style: SunmiTextStyle(bold: true,fontSize: 12,reverse: false),);
           }
           if (l.comentario.isNotEmpty) {

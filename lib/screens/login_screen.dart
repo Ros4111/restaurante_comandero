@@ -1,5 +1,6 @@
 // lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -84,42 +85,61 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _cerrarApp() {
+    SystemNavigator.pop();
+  }
+
   // ── Build ───────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Consumer<ApiService>(
-        builder: (context, api, _) => Column(
+      body: SafeArea(
+        child: Stack(
           children: [
-            // Banner servidor inaccesible
-            if (!api.serverReachable)
-              Container(
-                width: double.infinity,
-                color: Colors.red[900],
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.wifi_off, color: Colors.white, size: 16),
-                    SizedBox(width: 8),
-                    Text('SERVIDOR INACCESIBLE',
-                        style: TextStyle(color: Colors.white,
-                            fontWeight: FontWeight.bold, fontSize: 14)),
-                  ],
-                ),
-              ),
+            Consumer<ApiService>(
+              builder: (context, api, _) => Column(
+                children: [
+                  // Banner servidor inaccesible
+                  if (!api.serverReachable)
+                    Container(
+                      width: double.infinity,
+                      color: Colors.red[900],
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.wifi_off, color: Colors.white, size: 16),
+                          SizedBox(width: 8),
+                          Text('SERVIDOR INACCESIBLE',
+                              style: TextStyle(color: Colors.white,
+                                  fontWeight: FontWeight.bold, fontSize: 14)),
+                        ],
+                      ),
+                    ),
 
-            // Cuerpo principal estirado
-            Expanded(
-              child: _loading
-                  ? const Center(child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Cargando usuarios...'),
-                      ]))
-                  : _buildForm(),
+                  // Cuerpo principal estirado
+                  Expanded(
+                    child: _loading
+                        ? const Center(child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 16),
+                              Text('Cargando usuarios...'),
+                            ]))
+                        : _buildForm(),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                tooltip: 'Cerrar aplicación',
+                icon: const Icon(Icons.power_settings_new, color: Colors.white70),
+                onPressed: _cerrarApp,
+              ),
             ),
           ],
         ),
@@ -325,10 +345,10 @@ class _Teclado extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(4),
               child: _BotonAccion(
-                child: const Icon(Icons.backspace_outlined,
-                    color: Colors.white70, size: 24),
                 color: const Color(0xFF333333),
                 onTap: onBorrar,
+                child: const Icon(Icons.backspace_outlined,
+                    color: Colors.white70, size: 24),
               ),
             ),
           ),
@@ -344,13 +364,13 @@ class _Teclado extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(4),
               child: _BotonAccion(
-                child: const Text('OK',
-                    style: TextStyle(color: Colors.white,
-                        fontSize: 20, fontWeight: FontWeight.bold)),
                 color: onOk != null
                     ? AppTheme.colorPrimario
                     : AppTheme.colorPrimario.withValues(alpha: 0.35),
                 onTap: onOk,
+                child: const Text('OK',
+                    style: TextStyle(color: Colors.white,
+                        fontSize: 20, fontWeight: FontWeight.bold)),
               ),
             ),
           ),

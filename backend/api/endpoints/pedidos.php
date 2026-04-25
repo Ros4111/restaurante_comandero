@@ -284,7 +284,14 @@ function _nuevaLineaEscPos(int $mesa, array $linea, string $camarero): string {
     $t .= _escposBold(true) . " $cant x $nombre\n" . _escposBold(false);
     if (!empty($linea['opciones_elegidas'])) {
         foreach ((array)$linea['opciones_elegidas'] as $grupo => $opcion) {
-            $t .= "   >> $opcion\n";
+            if (is_array($opcion)) {
+                $nombre = (string)($opcion['nombre'] ?? '');
+            } else {
+                $nombre = (string)$opcion;
+            }
+            if ($nombre !== '') {
+                $t .= "   >> $nombre\n";
+            }
         }
     }
     if (!empty(trim($linea['comentario'] ?? ''))) {

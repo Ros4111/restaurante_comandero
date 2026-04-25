@@ -43,6 +43,13 @@ class CatalogoProvider extends ChangeNotifier {
       opciones.where((o) =>
           o.idProducto == idProducto && o.idGrupo == idGrupo && o.disponible).toList()
         ..sort((a, b) => a.orden.compareTo(b.orden));
+
+  OpcionProducto? opcionPorNombre(int idProducto, int idGrupo, String nombre) {
+    for (final o in opcionesDeGrupo(idProducto, idGrupo)) {
+      if (o.nombre == nombre) return o;
+    }
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -114,13 +121,22 @@ class MesaProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void modificarLinea(LineaPedido linea, {int? cantidad, String? comentario, int? moverAMesa}) {
+  void modificarLinea(
+    LineaPedido linea, {
+    int? cantidad,
+    String? comentario,
+    int? moverAMesa,
+    Map<int, OpcionElegida>? opcionesElegidas,
+    bool marcarEditada = false,
+  }) {
     final idx = lineas.indexOf(linea);
     if (idx < 0) return;
     lineas[idx] = linea.copyWith(
       cantidad: cantidad,
       comentario: comentario,
       moverAMesa: moverAMesa,
+      opcionesElegidas: opcionesElegidas,
+      editada: marcarEditada ? true : linea.editada,
     );
     notifyListeners();
   }

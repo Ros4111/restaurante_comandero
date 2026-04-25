@@ -44,21 +44,27 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
           child: Row(
             children: [
               if (hayAtras)
-                TextButton.icon(
+                TextButton(
                   onPressed: _pop,
-                  icon: const Icon(Icons.arrow_back, size: 18),
-                  label: const Text('Volver', style: TextStyle(fontSize: 15)),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
+                  child: Text(
+                    '<- ${_stack.last?.nombre ?? ''}',
+                    style: const TextStyle(fontSize: 15),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              Expanded(
-                child: Text(_stack.last?.nombre ?? 'Menú',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis),
-              ),
+              if (!hayAtras)
+                const Expanded(
+                  child: Text(
+                    'Menú',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
             ],
           ),
         ),
@@ -67,13 +73,26 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
             padding: EdgeInsets.zero, // SIN padding exterior
             children: [
               // Subcategorías — sin icono, sin padding extra
-              ...subcats.map((cat) => _CatTile(cat: cat, onTap: () => _push(cat))),
+              ...subcats.asMap().entries.map(
+                    (entry) => _CatTile(
+                      cat: entry.value,
+                      onTap: () => _push(entry.value),
+                      backgroundColor: entry.key.isEven
+                          ? AppTheme.colorTarjeta
+                          : AppTheme.colorSuperficie,
+                    ),
+                  ),
               // Productos
-              ...prods.map((p) => _ProdTile(
-                    p: p,
-                    onTap: () => widget.onTap(p),
-                    onLongPress: () => widget.onLongPress(p),
-                  )),
+              ...prods.asMap().entries.map(
+                    (entry) => _ProdTile(
+                      p: entry.value,
+                      onTap: () => widget.onTap(entry.value),
+                      onLongPress: () => widget.onLongPress(entry.value),
+                      backgroundColor: (subcats.length + entry.key).isEven
+                          ? AppTheme.colorTarjeta
+                          : AppTheme.colorSuperficie,
+                    ),
+                  ),
             ],
           ),
         ),
@@ -85,7 +104,12 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
 class _CatTile extends StatelessWidget {
   final Categoria cat;
   final VoidCallback onTap;
-  const _CatTile({required this.cat, required this.onTap});
+  final Color backgroundColor;
+  const _CatTile({
+    required this.cat,
+    required this.onTap,
+    required this.backgroundColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -93,9 +117,9 @@ class _CatTile extends StatelessWidget {
       onTap: onTap,
       child: Container(
         // Sin margin, borde inferior fino como separador
-        decoration: const BoxDecoration(
-          color: AppTheme.colorCategorias,
-          border: Border(bottom: BorderSide(color: Colors.black26, width: 1)),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          border: const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
         child: Text(
@@ -113,7 +137,13 @@ class _ProdTile extends StatelessWidget {
   final Producto p;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  const _ProdTile({required this.p, required this.onTap, required this.onLongPress});
+  final Color backgroundColor;
+  const _ProdTile({
+    required this.p,
+    required this.onTap,
+    required this.onLongPress,
+    required this.backgroundColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -125,9 +155,9 @@ class _ProdTile extends StatelessWidget {
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.colorTarjeta,
-          border: Border(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          border: const Border(
             bottom: BorderSide(color: Colors.black26, width: 1),
           ),
         ),

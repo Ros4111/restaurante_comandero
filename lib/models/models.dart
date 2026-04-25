@@ -111,11 +111,12 @@ class LineaPedido {
   int cantidad;
   String comentario;
   final String nombreProducto;
-  Map<int, String> opcionesElegidas; // idGrupo -> nombreOpcion
+  Map<int, OpcionElegida> opcionesElegidas; // idGrupo -> opción elegida
   final String textoImprimir;
   int orden;
   bool impreso;
   int? moverAMesa;        // si != null, mover esta línea a otra mesa
+  bool editada;
 
   LineaPedido({
     this.idLinea,
@@ -128,15 +129,28 @@ class LineaPedido {
     required this.orden,
     this.impreso = false,
     this.moverAMesa,
+    this.editada = false,
   });
 
   bool get esNuevo => idLinea == null;
+  List<String> get opcionesNoPredeterminadas =>
+      opcionesElegidas.values.where((o) => !o.predeterminado).map((o) => o.nombre).toList();
+  List<String> get opcionesNombres =>
+      opcionesElegidas.values.map((o) => o.nombre).toList();
 
   factory LineaPedido.fromJson(Map<String, dynamic> j) {
     final opRaw = j['opciones_elegidas'];
-    Map<int, String> opciones = {};
+    Map<int, OpcionElegida> opciones = {};
     if (opRaw is Map) {
-      opRaw.forEach((k, v) => opciones[int.parse(k.toString())] = v.toString());
+      opRaw.forEach((k, v) {
+        final idGrupo = int.parse(k.toString());
+        if (v is Map) {
+          opciones[idGrupo] = OpcionElegida.fromJson(Map<String, dynamic>.from(v));
+        } else {
+          // Compatibilidad con formato antiguo: solo nombre
+          opciones[idGrupo] = OpcionElegida(nombre: v.toString(), predeterminado: false);
+        }
+      });
     }
     return LineaPedido(
       idLinea: j['id_linea'] != null ? int.parse(j['id_linea'].toString()) : null,
@@ -148,6 +162,7 @@ class LineaPedido {
       textoImprimir: j['texto_imprimir'] ?? '',
       orden: int.parse((j['orden'] ?? 0).toString()),
       impreso: j['impreso'].toString() == '1',
+      editada: false,
     );
   }
 
@@ -157,7 +172,7 @@ class LineaPedido {
       'cantidad': cantidad,
       'comentario': comentario,
       'nombre_producto': nombreProducto,
-      'opciones_elegidas': opcionesElegidas.map((k, v) => MapEntry(k.toString(), v)),
+      'opciones_elegidas': opcionesElegidas.map((k, v) => MapEntry(k.toString(), v.toJson())),
       'texto_imprimir': textoImprimir,
     };
     if (idLinea != null) m['id_linea'] = idLinea;
@@ -165,18 +180,45 @@ class LineaPedido {
     return m;
   }
 
-  LineaPedido copyWith({int? cantidad, String? comentario, int? moverAMesa}) => LineaPedido(
+  LineaPedido copyWith({
+    int? cantidad,
+    String? comentario,
+    int? moverAMesa,
+    Map<int, OpcionElegida>? opcionesElegidas,
+    bool? editada,
+  }) => LineaPedido(
     idLinea: idLinea,
     idProducto: idProducto,
     cantidad: cantidad ?? this.cantidad,
     comentario: comentario ?? this.comentario,
     nombreProducto: nombreProducto,
-    opcionesElegidas: Map.from(opcionesElegidas),
+    opcionesElegidas: Map<int, OpcionElegida>.from(opcionesElegidas ?? this.opcionesElegidas),
     textoImprimir: textoImprimir,
     orden: orden,
     impreso: impreso,
     moverAMesa: moverAMesa ?? this.moverAMesa,
+    editada: editada ?? this.editada,
   );
+}
+
+class OpcionElegida {
+  final String nombre;
+  final bool predeterminado;
+
+  OpcionElegida({
+    required this.nombre,
+    required this.predeterminado,
+  });
+
+  factory OpcionElegida.fromJson(Map<String, dynamic> j) => OpcionElegida(
+    nombre: j['nombre']?.toString() ?? '',
+    predeterminado: j['predeterminado'].toString() == '1' || j['predeterminado'] == true,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'nombre': nombre,
+    'predeterminado': predeterminado,
+  };
 }
 
 class MesaResumen {
@@ -186,11 +228,14 @@ class MesaResumen {
   final int? idUsuarioBloqueo;
   final String? nombreUsuarioBloqueo;
   final String? horaBloqueo;
+  final String? horaCreacion;
+  final String? horaUltimaAccion;
   final int totalLineas;
 
   MesaResumen({
     required this.idPedido, required this.idMesa, required this.estado,
     this.idUsuarioBloqueo, this.nombreUsuarioBloqueo, this.horaBloqueo,
+    this.horaCreacion, this.horaUltimaAccion,
     required this.totalLineas,
   });
 
@@ -202,6 +247,8 @@ class MesaResumen {
         ? int.parse(j['id_usuario_bloqueo'].toString()) : null,
     nombreUsuarioBloqueo: j['nombre_usuario_bloqueo'],
     horaBloqueo: j['hora_bloqueo'],
+    horaCreacion: j['hora_creacion']?.toString(),
+    horaUltimaAccion: j['hora_ultima_accion']?.toString(),
     totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
   );
 }
