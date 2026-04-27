@@ -2,12 +2,25 @@
 // lib/services/sunmi_service.dart
 // Compatible con sunmi_printer_plus ^4.1.1
 // API real: llamadas secuenciales con SunmiTextStyle
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
 import '../models/models.dart';
 import 'package:intl/intl.dart';
 
 class SunmiService {
+  static Future<bool> _esDispositivoSunmi() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final info = await DeviceInfoPlugin().androidInfo;
+      final fabricante = info.manufacturer.trim().toUpperCase();
+      return fabricante == 'SUNMI' || fabricante.contains('SUNMI');
+    } catch (e) {
+      debugPrint('No se pudo validar fabricante: $e');
+      return false;
+    }
+  }
   
   static Future<void> imprimirConfirmacion({
     required int idMesa,
@@ -17,6 +30,12 @@ class SunmiService {
     required List<LineaPedido> lineasMovidas,
   }) async {
     try {
+      final esSunmi = await _esDispositivoSunmi();
+      if (!esSunmi) {
+        debugPrint('Impresion omitida: dispositivo no SUNMI');
+        return;
+      }
+
       // ── Cabecera ─────────────────────────────────────────────
       await SunmiPrinter.printText(
         'Tu Pedido. Mesa $idMesa',

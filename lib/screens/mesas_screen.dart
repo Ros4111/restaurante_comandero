@@ -57,29 +57,9 @@ class _MesasScreenState extends State<MesasScreen> {
   }
 
   Future<void> _abrirMesa() async {
-    final ctrl = TextEditingController();
     final numStr = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.colorTarjeta,
-        title: const Text('Número de mesa'),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          style: const TextStyle(fontSize: 22),
-          decoration:
-              const InputDecoration(labelText: 'Introduce el nº de mesa'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: const Text('Abrir')),
-        ],
-      ),
+      builder: (ctx) => const _AbrirMesaDialog(),
     );
 
     if (numStr == null || numStr.isEmpty) return;
@@ -241,11 +221,15 @@ class _MesaTile extends StatelessWidget {
   const _MesaTile(
       {required this.mesa, required this.sesion, required this.onTap});
 
-  String _hhmm(String? value) {
-    if (value == null || value.isEmpty) return '--:--';
-    final timePart = value.contains(' ') ? value.split(' ').last : value;
-    if (timePart.length >= 5) return timePart.substring(0, 5);
-    return '--:--';
+  String _minutosTexto(String? value) {
+    if (value == null || value.isEmpty) return '--';
+    final normalized = value.contains(' ') ? value.replaceFirst(' ', 'T') : value;
+    final parsed = DateTime.tryParse(normalized);
+    if (parsed == null) return '--';
+    final mins = DateTime.now().difference(parsed).inMinutes;
+    if (mins > 999) return 'Mucho';
+    if (mins < 0) return '0';
+    return '$mins';
   }
 
   @override
@@ -277,7 +261,7 @@ class _MesaTile extends StatelessWidget {
                     fontSize: 13, color: AppTheme.colorTextoGris)),
             //const SizedBox(height: 2),
             Text(
-                '${_hhmm(mesa.horaCreacion)} -- ${_hhmm(mesa.horaUltimaAccion)}',
+                '${_minutosTexto(mesa.horaCreacion)} -- ${_minutosTexto(mesa.horaUltimaAccion)}',
                 style: const TextStyle(
                     fontSize: 13, color: AppTheme.colorTextoGris)),
             if (bloqueadaPorOtro) ...[
@@ -291,6 +275,206 @@ class _MesaTile extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AbrirMesaDialog extends StatefulWidget {
+  const _AbrirMesaDialog();
+
+  @override
+  State<_AbrirMesaDialog> createState() => _AbrirMesaDialogState();
+}
+
+class _AbrirMesaDialogState extends State<_AbrirMesaDialog> {
+  String _numero = '';
+
+  void _tecla(String v) {
+    if (_numero.length >= 4) return;
+    setState(() => _numero += v);
+  }
+
+  void _borrar() {
+    if (_numero.isEmpty) return;
+    setState(() => _numero = _numero.substring(0, _numero.length - 1));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppTheme.colorTarjeta,
+      title: const Text('Numero de mesa'),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.colorSuperficie,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                _numero.isEmpty ? 'Introduce numero' : _numero,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 26,
+                  letterSpacing: _numero.isEmpty ? 0 : 3,
+                  color: _numero.isEmpty ? AppTheme.colorTextoGris : Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 240,
+              child: _TecladoMesa(
+                onTecla: _tecla,
+                onBorrar: _borrar,
+                onOk: _numero.isNotEmpty ? () => Navigator.pop(context, _numero) : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TecladoMesa extends StatelessWidget {
+  final void Function(String) onTecla;
+  final VoidCallback onBorrar;
+  final VoidCallback? onOk;
+
+  const _TecladoMesa({
+    required this.onTecla,
+    required this.onBorrar,
+    required this.onOk,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _fila(['1', '2', '3']),
+        _fila(['4', '5', '6']),
+        _fila(['7', '8', '9']),
+        _filaEspecial(),
+      ],
+    );
+  }
+
+  Widget _fila(List<String> nums) {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: nums
+            .map(
+              (n) => Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: _BotonNumMesa(label: n, onTap: () => onTecla(n)),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _filaEspecial() {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: _BotonAccionMesa(
+                color: const Color(0xFF333333),
+                onTap: onBorrar,
+                child: const Icon(Icons.backspace_outlined, color: Colors.white70, size: 24),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: _BotonNumMesa(label: '0', onTap: () => onTecla('0')),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: _BotonAccionMesa(
+                color: onOk != null
+                    ? AppTheme.colorPrimario
+                    : AppTheme.colorPrimario.withValues(alpha: 0.35),
+                onTap: onOk,
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BotonNumMesa extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _BotonNumMesa({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF2A2A2A),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BotonAccionMesa extends StatelessWidget {
+  final Widget child;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _BotonAccionMesa({required this.child, required this.color, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Center(child: child),
       ),
     );
   }

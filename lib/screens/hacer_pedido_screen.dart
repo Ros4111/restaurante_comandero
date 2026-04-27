@@ -138,21 +138,51 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   Future<void> _cerrarMesa() async {
+    final confirmCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppTheme.colorTarjeta,
-        title: const Text('Cerrar mesa'),
-        content: Text('¿Cerrar la mesa ${widget.idMesa}?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Cerrar')),
-        ],
+      builder: (_) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          final confirmacionValida =
+              confirmCtrl.text.trim().toLowerCase() == 'cerrar';
+          return AlertDialog(
+            backgroundColor: AppTheme.colorTarjeta,
+            title: const Text('Cerrar mesa'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}.'),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: confirmCtrl,
+                  autofocus: true,
+                  onChanged: (_) => setStateDialog(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Confirmacion',
+                    hintText: 'Cerrar',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: confirmacionValida
+                    ? () => Navigator.pop(context, true)
+                    : null,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
       ),
     );
+    confirmCtrl.dispose();
     if (ok != true) return;
     final api = context.read<ApiService>();
     try {
@@ -322,10 +352,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
               ),
             ),
             if (sesion.esSupervisor)
-              TextButton.icon(
+              IconButton(
                 onPressed: _cerrarMesa,
-                icon: const Icon(Icons.check_circle, color: Colors.green),
-                label: const Text('Cerrar Mesa', style: TextStyle(color: Colors.green, fontSize: 16)),
+                tooltip: 'Cerrar mesa',
+                icon: const Icon(Icons.euro, color: Colors.green, size: 22),
               ),
           ],
         ],

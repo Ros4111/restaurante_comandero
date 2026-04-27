@@ -270,15 +270,15 @@ class _LoginScreenState extends State<LoginScreen> {
             flex: 4,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _logging
-                  ? const Center(child: CircularProgressIndicator())
-                  : _Teclado(
-                      onTecla: _tecla,
-                      onBorrar: _borrar,
-                      onOk: _seleccionado != null && _pass.isNotEmpty
-                          ? _login
-                          : null,
-                    ),
+              child: _seleccionado == null
+                  ? const SizedBox.shrink()
+                  : _logging
+                      ? const Center(child: CircularProgressIndicator())
+                      : _Teclado(
+                          onTecla: _tecla,
+                          onBorrar: _borrar,
+                          onOk: _pass.isNotEmpty ? _login : null,
+                        ),
             ),
           ),
 

@@ -84,7 +84,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
         width: widthPantalla,
         child: SingleChildScrollView(
           child: Padding(
-            padding: const EdgeInsets.only(left: 8.0),
+            padding: const EdgeInsets.only(left: 8, right: 6, top: 6, bottom: 2),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -122,47 +122,60 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Divider(),
+                      const Divider(height: 8),
                       Text(g.nombre,
                           style: const TextStyle(
                               fontWeight: FontWeight.bold, fontSize: 15)),
-                      //const SizedBox(height: 40),
-                      RadioGroup<String>(
-                        groupValue: _seleccion[g.id]?.nombre,
-                        onChanged: (v) {
-                          if (v != null) {
-                            final opcion =
-                                opts.firstWhere((o) => o.nombre == v);
-                            setState(() {
-                              _seleccion[g.id] = OpcionElegida(
-                                nombre: opcion.nombre,
-                                predeterminado: opcion.predeterminado,
-                              );
-                            });
-                          }
-                        },
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: opts
-                              .map((o) => RadioListTile<String>(
-                                    value: o.nombre,
-                                    title: Text(o.nombre,
-                                        style: const TextStyle(fontSize: 16)),
-                                    activeColor: AppTheme.colorPrimario,
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    radioScaleFactor: 1.0,
-                                    radioInnerRadius:
-                                        WidgetStateProperty.resolveWith<double>(
-                                            (states) {
-                                      if (states
-                                          .contains(WidgetState.selected)) {
-                                        return 3.0; // Radio más pequeño cuando está seleccionado
-                                      }
-                                      return 0.0; // Sin círculo interior cuando no está seleccionado
-                                    }),
-                                  ))
-                              .toList(),
+                      Theme(
+                        data: Theme.of(context).copyWith(
+                          listTileTheme: const ListTileThemeData(
+                            horizontalTitleGap: 2,
+                            minLeadingWidth: 0,
+                            minVerticalPadding: 0,
+                            dense: true,
+                          ),
+                        ),
+                        child: RadioGroup<String>(
+                          groupValue: _seleccion[g.id]?.nombre,
+                          onChanged: (v) {
+                            if (v != null) {
+                              final opcion =
+                                  opts.firstWhere((o) => o.nombre == v);
+                              setState(() {
+                                _seleccion[g.id] = OpcionElegida(
+                                  nombre: opcion.nombre,
+                                  predeterminado: opcion.predeterminado,
+                                );
+                              });
+                            }
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: opts
+                                .map((o) => RadioListTile<String>(
+                                      value: o.nombre,
+                                      title: Text(o.nombre,
+                                          style: const TextStyle(fontSize: 16)),
+                                      activeColor: AppTheme.colorPrimario,
+                                      dense: true,
+                                      visualDensity: const VisualDensity(
+                                        horizontal: -4,
+                                        vertical: -4,
+                                      ),
+                                      contentPadding: EdgeInsets.zero,
+                                      radioScaleFactor: 1.0,
+                                      radioInnerRadius:
+                                          WidgetStateProperty.resolveWith<double>(
+                                              (states) {
+                                        if (states
+                                            .contains(WidgetState.selected)) {
+                                          return 3.0;
+                                        }
+                                        return 0.0;
+                                      }),
+                                    ))
+                                .toList(),
+                          ),
                         ),
                       ),
                     ],
@@ -170,11 +183,11 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                 }),
 
                 // Comentario
-                const Divider(),
+                const Divider(height: 8),
                 const Text('Comentario (opcional)',
                     style:
                         TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 TextField(
                   controller: _comentCtrl,
                   style: const TextStyle(fontSize: 16),
@@ -187,7 +200,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                         borderRadius: BorderRadius.circular(8)),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -217,10 +230,9 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                           widget.modoEdicion ? Icons.save_outlined : Icons.add,
                           size: 30),
                     ),
-                    const SizedBox(width: 8),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 2),
               ],
             ),
           ),

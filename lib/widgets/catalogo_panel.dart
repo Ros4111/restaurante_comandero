@@ -125,7 +125,7 @@ class _CatTile extends StatelessWidget {
         child: Text(
           cat.nombre,
           style: const TextStyle(
-              color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
           overflow: TextOverflow.ellipsis,
         ),
       ),
@@ -161,10 +161,10 @@ class _ProdTile extends StatelessWidget {
             bottom: BorderSide(color: Colors.black26, width: 1),
           ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
         child: Text(
           p.nombre,
-          style: TextStyle(color: color, fontSize: 16),
+          style: TextStyle(color: color, fontSize: 17, fontWeight: FontWeight.bold),
           overflow: TextOverflow.ellipsis,
         ),
       ),
