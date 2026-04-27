@@ -20,14 +20,15 @@ class _MesasScreenState extends State<MesasScreen> {
   List<MesaResumen> _mesas = [];
   bool _loading = true;
   Timer? _refreshTimer;
-String _version = '';
+  String _version = '';
 
   @override
   void initState() {
     super.initState();
     _cargar();
     _cargarVersion();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _cargar());
+    _refreshTimer =
+        Timer.periodic(const Duration(seconds: 15), (_) => _cargar());
   }
 
   @override
@@ -35,15 +36,21 @@ String _version = '';
     _refreshTimer?.cancel();
     super.dispose();
   }
-Future<void> _cargarVersion() async {
+
+  Future<void> _cargarVersion() async {
     final info = await PackageInfo.fromPlatform();
     if (mounted) setState(() => _version = 'v${info.version}');
   }
+
   Future<void> _cargar() async {
     final api = context.read<ApiService>();
     try {
       final lista = await api.getMesas();
-      if (mounted) setState(() { _mesas = lista; _loading = false; });
+      if (mounted)
+        setState(() {
+          _mesas = lista;
+          _loading = false;
+        });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -61,10 +68,13 @@ Future<void> _cargarVersion() async {
           keyboardType: TextInputType.number,
           autofocus: true,
           style: const TextStyle(fontSize: 22),
-          decoration: const InputDecoration(labelText: 'Introduce el nº de mesa'),
+          decoration:
+              const InputDecoration(labelText: 'Introduce el nº de mesa'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
           ElevatedButton(
               onPressed: () => Navigator.pop(ctx, ctrl.text),
               child: const Text('Abrir')),
@@ -93,7 +103,7 @@ Future<void> _cargarVersion() async {
   }
 
   Future<void> _entrarMesa(MesaResumen mesa) async {
-    final api   = context.read<ApiService>();
+    final api = context.read<ApiService>();
     try {
       await api.bloquearMesa(mesa.idPedido);
       _navPedido(mesa.idPedido, mesa.idMesa, bloqueadoPorMi: true);
@@ -140,7 +150,7 @@ Future<void> _cargarVersion() async {
   @override
   Widget build(BuildContext context) {
     final sesion = context.watch<SesionProvider>();
-    final api    = context.watch<ApiService>();
+    final api = context.watch<ApiService>();
 
     return Scaffold(
       appBar: AppBar(
@@ -151,7 +161,8 @@ Future<void> _cargarVersion() async {
             Center(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white10,
                   borderRadius: BorderRadius.circular(20),
@@ -169,20 +180,26 @@ Future<void> _cargarVersion() async {
           IconButton(icon: const Icon(Icons.refresh), onPressed: _cargar),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
-        bottom: api.serverReachable ? null : PreferredSize(
-          preferredSize: const Size.fromHeight(30),
-          child: Container(
-            color: Colors.red[900],
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.wifi_off, color: Colors.white, size: 16),
-              SizedBox(width: 6),
-              Text('SERVIDOR INACCESIBLE',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ]),
-          ),
-        ),
+        bottom: api.serverReachable
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(30),
+                child: Container(
+                  color: Colors.red[900],
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.wifi_off, color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text('SERVIDOR INACCESIBLE',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold)),
+                      ]),
+                ),
+              ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _abrirMesa,
@@ -193,8 +210,10 @@ Future<void> _cargarVersion() async {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _mesas.isEmpty
-              ? const Center(child: Text('No hay mesas abiertas',
-                    style: TextStyle(fontSize: 20, color: AppTheme.colorTextoGris)))
+              ? const Center(
+                  child: Text('No hay mesas abiertas',
+                      style: TextStyle(
+                          fontSize: 20, color: AppTheme.colorTextoGris)))
               : GridView.builder(
                   padding: const EdgeInsets.all(16),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -219,7 +238,8 @@ class _MesaTile extends StatelessWidget {
   final SesionProvider sesion;
   final VoidCallback onTap;
 
-  const _MesaTile({required this.mesa, required this.sesion, required this.onTap});
+  const _MesaTile(
+      {required this.mesa, required this.sesion, required this.onTap});
 
   String _hhmm(String? value) {
     if (value == null || value.isEmpty) return '--:--';
@@ -239,7 +259,7 @@ class _MesaTile extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: AppTheme.colorTarjeta,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: bloqueadaPorOtro ? Colors.orange : AppTheme.colorPrimario,
             width: 2,
@@ -249,14 +269,17 @@ class _MesaTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('${mesa.idMesa}',
-                style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
+                style:
+                    const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+            //const SizedBox(height: 2),
             Text(mesa.estado,
-                style: const TextStyle(fontSize: 13, color: AppTheme.colorTextoGris)),
-            const SizedBox(height: 2),
+                style: const TextStyle(
+                    fontSize: 13, color: AppTheme.colorTextoGris)),
+            //const SizedBox(height: 2),
             Text(
                 '${_hhmm(mesa.horaCreacion)} -- ${_hhmm(mesa.horaUltimaAccion)}',
-                style: const TextStyle(fontSize: 13, color: AppTheme.colorTextoGris)),
+                style: const TextStyle(
+                    fontSize: 13, color: AppTheme.colorTextoGris)),
             if (bloqueadaPorOtro) ...[
               const SizedBox(height: 2),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [

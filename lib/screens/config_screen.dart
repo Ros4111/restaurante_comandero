@@ -33,41 +33,45 @@ class _ConfigScreenState extends State<ConfigScreen> {
   }
 
   Future<void> _guardar() async {
-    final url = _ctrl.text.trim();
-    if (!url.startsWith('https://')) {
-      setState(() {
-        _error = 'La URL debe comenzar por https://';
-        _errorIcon = Icons.link_off;
-      });
-      return;
-    }
+  final url = _ctrl.text.trim();
+  if (!url.startsWith('https://')) {
+    setState(() {
+      _error = 'La URL debe comenzar por https://';
+      _errorIcon = Icons.link_off;
+    });
+    return;
+  }
 
-    setState(() { _loading = true; _error = null; _errorIcon = null; });
+  setState(() { _loading = true; _error = null; _errorIcon = null; });
 
-    // 1. Comprobar internet primero
-    final internet = await _hayInternet();
-    if (!mounted) return;
-    if (!internet) {
-      setState(() {
-        _error = 'Sin conexión a Internet. Comprueba el WiFi o los datos móviles.';
-        _errorIcon = Icons.wifi_off;
-        _loading = false;
-      });
-      return;
-    }
+  // 1. Comprobar internet primero
+  final internet = await _hayInternet();
+  if (!mounted) return;
+  if (!internet) {
+    setState(() {
+      _error = 'Sin conexión a Internet. Comprueba el WiFi.';
+      _errorIcon = Icons.wifi_off;
+      _loading = false;
+    });
+    return;
+  }
 
-    // 2. Comprobar que el servidor responde
-    final api = context.read<ApiService>();
-    api.setBaseUrl(url);
-    final ok = await api.checkHealth();
+  // 2. Comprobar que el servidor responde
+  if (!mounted) return; // Add this check before using context
+  final api = context.read<ApiService>();
+  api.setBaseUrl(url);
+  final ok = await api.checkHealth();
 
-    if (!mounted) return;
-    if (ok) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('server_url', url);
+  if (!mounted) return;
+  if (ok) {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('server_url', url);
+    if (mounted) { // Also check mounted before Navigator
       Navigator.pushReplacement(
           context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-    } else {
+    }
+  } else {
+    if (mounted) { // Check mounted before setState
       setState(() {
         _error = 'Internet OK, pero el servidor no responde.\nVerifica que la URL sea correcta y el servidor esté encendido.';
         _errorIcon = Icons.dns_outlined;
@@ -75,6 +79,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       });
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
