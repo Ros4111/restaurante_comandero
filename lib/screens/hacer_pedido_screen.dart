@@ -52,7 +52,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   Future<void> _cargarPedido() async {
-    final api    = context.read<ApiService>();
+    final api = context.read<ApiService>();
     final mesaPv = context.read<MesaProvider>();
 
     try {
@@ -84,34 +84,40 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Future<bool> _guardar() async {
     if (_guardando) return false;
-    final api    = context.read<ApiService>();
+    final api = context.read<ApiService>();
+    final catalogo = context.read<CatalogoProvider>();
     final mesaPv = context.read<MesaProvider>();
     final sesion = context.read<SesionProvider>();
 
     setState(() => _guardando = true);
 
-    final lineasNuevas     = mesaPv.lineas.where((l) => l.esNuevo).toList();
+    final lineasNuevas = mesaPv.lineas.where((l) => l.esNuevo).toList();
     final lineasEliminadas = <LineaPedido>[];
-    final lineasMovidas    = mesaPv.lineas.where((l) => l.moverAMesa != null).toList();
+    final lineasMovidas =
+        mesaPv.lineas.where((l) => l.moverAMesa != null).toList();
 
     try {
       await api.guardarPedido(widget.idPedido, mesaPv.lineasParaEnviar());
 
-      // Imprimir confirmación en Sunmi
+      final impresoraPorProducto = <int, int>{
+        for (final p in catalogo.productos) p.id: p.idImpresora,
+      };
+
+      // Imprimir confirmación en impresora ESC/POS por red
       await SunmiService.imprimirConfirmacion(
         idMesa: widget.idMesa,
         camarero: sesion.usuario?.nombre ?? '',
         lineasNuevas: lineasNuevas,
         lineasEliminadas: lineasEliminadas,
         lineasMovidas: lineasMovidas,
+        impresoraPorProducto: impresoraPorProducto,
       );
 
       // Recargar para sincronizar estado con servidor
       await _cargarPedido();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✓ Pedido guardado'),
-                backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('✓ Pedido guardado'), backgroundColor: Colors.green));
       }
       return true;
     } on ApiException catch (e) {
@@ -152,7 +158,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}.'),
+                Text(
+                    'Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}.'),
                 const SizedBox(height: 10),
                 TextField(
                   controller: confirmCtrl,
@@ -207,12 +214,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   void onProductoLongPress(Producto p) async {
     final catalogo = context.read<CatalogoProvider>();
-    final grupos   = catalogo.gruposDeProducto(p.id);
+    final grupos = catalogo.gruposDeProducto(p.id);
 
     // Si tiene opciones o es personalizable → mostrar diálogo
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (_) => ProductoOpcionesDialog(producto: p, grupos: grupos, catalogo: catalogo),
+      builder: (_) => ProductoOpcionesDialog(
+          producto: p, grupos: grupos, catalogo: catalogo),
     );
     if (result == null) return;
     final opciones = Map<int, OpcionElegida>.from(result['opciones'] as Map);
@@ -224,11 +232,12 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Map<int, OpcionElegida> _defaultOpciones(Producto p) {
     final catalogo = context.read<CatalogoProvider>();
-    final grupos   = catalogo.gruposDeProducto(p.id);
+    final grupos = catalogo.gruposDeProducto(p.id);
     final Map<int, OpcionElegida> defaults = {};
     for (final g in grupos) {
       final opts = catalogo.opcionesDeGrupo(p.id, g.id);
-      final def  = opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
+      final def =
+          opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
       if (def != null) {
         defaults[g.id] = OpcionElegida(
           nombre: def.nombre,
@@ -258,9 +267,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   void onLineaTap(LineaPedido linea) async {
     if (context.read<MesaProvider>().soloLectura) return;
     final catalogo = context.read<CatalogoProvider>();
-    final producto = catalogo.productos
-        .where((p) => p.id == linea.idProducto)
-        .firstOrNull;
+    final producto =
+        catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
     if (producto == null) {
       _showError('No se pudo abrir el editor del producto');
       return;
@@ -321,7 +329,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final api    = context.watch<ApiService>();
+    final api = context.watch<ApiService>();
     final mesaPv = context.watch<MesaProvider>();
     final sesion = context.watch<SesionProvider>();
 
@@ -367,12 +375,18 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                   width: double.infinity,
                   alignment: Alignment.center,
                   padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Icon(Icons.wifi_off, color: Colors.white, size: 14),
-                    SizedBox(width: 6),
-                    Text('SERVIDOR INACCESIBLE — cambios pendientes de sincronizar',
-                        style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                  ]),
+                  child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.wifi_off, color: Colors.white, size: 14),
+                        SizedBox(width: 6),
+                        Text(
+                            'SERVIDOR INACCESIBLE — cambios pendientes de sincronizar',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold)),
+                      ]),
                 ),
               )
             : null,
@@ -383,8 +397,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           Expanded(
             flex: 1,
             child: mesaPv.soloLectura
-                ? const Center(child: Text('Modo solo lectura',
-                    style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 18)))
+                ? const Center(
+                    child: Text('Modo solo lectura',
+                        style: TextStyle(
+                            color: AppTheme.colorTextoGris, fontSize: 18)))
                 : CatalogoPanel(
                     onTap: onProductoTap,
                     onLongPress: onProductoLongPress,

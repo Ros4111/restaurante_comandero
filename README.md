@@ -134,8 +134,8 @@ adb install build/app/outputs/flutter-apk/app-release.apk
 
 Editar en la BD:
 ```sql
-UPDATE restaurante.impresoras SET ip='192.168.1.101' WHERE nombre='Barra';
-UPDATE restaurante.impresoras SET ip='192.168.1.102' WHERE nombre='Cocina';
+UPDATE restaurante.impresoras SET ip='192.168.100.10' WHERE nombre='Barra';
+UPDATE restaurante.impresoras SET ip='192.168.100.11' WHERE nombre='Cocina';
 ```
 
 ---
