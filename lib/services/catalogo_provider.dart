@@ -7,6 +7,7 @@ class CatalogoProvider extends ChangeNotifier {
   List<Producto> productos = [];
   List<GrupoOpciones> grupos = [];
   List<OpcionProducto> opciones = [];
+  List<Impresora> impresoras = [];
 
   bool get loaded => categorias.isNotEmpty;
 
@@ -19,6 +20,12 @@ class CatalogoProvider extends ChangeNotifier {
         .map((j) => GrupoOpciones.fromJson(j)).toList();
     opciones = (data['opciones'] as List)
         .map((j) => OpcionProducto.fromJson(j)).toList();
+    final impRaw = data['impresoras'];
+    impresoras = impRaw is List
+        ? impRaw
+            .map((j) => Impresora.fromJson(Map<String, dynamic>.from(j as Map)))
+            .toList()
+        : [];
     notifyListeners();
   }
 

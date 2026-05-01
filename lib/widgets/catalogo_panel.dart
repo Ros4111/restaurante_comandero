@@ -10,7 +10,8 @@ class CatalogoPanel extends StatefulWidget {
   final void Function(Producto) onTap;
   final void Function(Producto) onLongPress;
 
-  const CatalogoPanel({super.key, required this.onTap, required this.onLongPress});
+  const CatalogoPanel(
+      {super.key, required this.onTap, required this.onLongPress});
 
   @override
   State<CatalogoPanel> createState() => _CatalogoPanelState();
@@ -22,7 +23,9 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
   int get _currentId => _stack.last?.id ?? 1;
 
   void _push(Categoria cat) => setState(() => _stack.add(cat));
-  void _pop() { if (_stack.length > 1) setState(() => _stack.removeLast()); }
+  void _pop() {
+    if (_stack.length > 1) setState(() => _stack.removeLast());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,8 +34,8 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final subcats  = catalogo.categoriasHijo(_currentId);
-    final prods    = catalogo.productosDeCategoria(_currentId);
+    final subcats = catalogo.categoriasHijo(_currentId);
+    final prods = catalogo.productosDeCategoria(_currentId);
     final hayAtras = _stack.length > 1;
 
     return Column(
@@ -47,13 +50,15 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
                 TextButton(
                   onPressed: _pop,
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
                     '<- ${_stack.last?.nombre ?? ''}',
-                    style: const TextStyle(fontSize: 15),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -119,7 +124,8 @@ class _CatTile extends StatelessWidget {
         // Sin margin, borde inferior fino como separador
         decoration: BoxDecoration(
           color: backgroundColor,
-          border: const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
+          border:
+              const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
         child: Text(
@@ -147,10 +153,6 @@ class _ProdTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = p.personalizable
-        ? AppTheme.colorProductoPersonalizable
-        : AppTheme.colorProductoNormal;
-
     return InkWell(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -164,7 +166,8 @@ class _ProdTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
         child: Text(
           p.nombre,
-          style: TextStyle(color: color, fontSize: 17, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+              color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
           overflow: TextOverflow.ellipsis,
         ),
       ),

@@ -6,14 +6,12 @@ function endpointCatalogo(array $payload): void {
     $db = getDB();
 
     $cats = $db->query(
-        'SELECT id_categoria, id_categoria_padre, nombre_categoria,
-                nombre_imagen, disponible, orden
-           FROM categoria_producto ORDER BY orden, id_categoria'
+        'SELECT id_categoria, id_categoria_padre, nombre_categoria, nombre_imagen, disponible, orden FROM categoria_producto ORDER BY orden'
     )->fetchAll();
 
     $prods = $db->query(
         'SELECT id_producto, nombre_producto, id_categoria,
-                texto_imprimir, id_impresora, disponible, personalizable, orden
+                texto_imprimir, id_impresora, disponible, orden
            FROM productos ORDER BY orden, id_producto'
     )->fetchAll();
 

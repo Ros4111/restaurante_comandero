@@ -75,7 +75,6 @@ Productos
 •	Texto_imprimir 
 •	ID_impresora (0 si no imprime) 
 •	Disponible_si_no 
-•	Personalizable_si_no 
 •	Orden  (indica el orden de inserción)
 ________________________________________
 Productos_opciones
@@ -206,7 +205,6 @@ Siempre aparece:
 Colores:
 •	Categorías → azul 
 •	Productos normales → blanco 
-•	Productos personalizables → rojo 
 ________________________________________
 9️⃣ Añadir Producto
 Click simple:

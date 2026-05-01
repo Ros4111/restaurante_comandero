@@ -102,6 +102,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       final impresoraPorProducto = <int, int>{
         for (final p in catalogo.productos) p.id: p.idImpresora,
       };
+      final impresorasPorId = <int, Impresora>{
+        for (final imp in catalogo.impresoras) imp.id: imp,
+      };
 
       // Imprimir confirmación en impresora ESC/POS por red
       await SunmiService.imprimirConfirmacion(
@@ -111,6 +114,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         lineasEliminadas: lineasEliminadas,
         lineasMovidas: lineasMovidas,
         impresoraPorProducto: impresoraPorProducto,
+        impresorasPorId: impresorasPorId,
       );
 
       // Recargar para sincronizar estado con servidor
@@ -216,7 +220,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final catalogo = context.read<CatalogoProvider>();
     final grupos = catalogo.gruposDeProducto(p.id);
 
-    // Si tiene opciones o es personalizable → mostrar diálogo
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => ProductoOpcionesDialog(

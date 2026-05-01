@@ -153,6 +153,44 @@ class ApiService extends ChangeNotifier {
     return await _request('GET', '/catalogo');
   }
 
+  // ── Productos (admin / supervisor) ─────────────────────────
+  Future<List<Map<String, dynamic>>> getProductosLista({String? q}) async {
+    final path = (q == null || q.trim().isEmpty)
+        ? '/productos'
+        : '/productos?q=${Uri.encodeQueryComponent(q.trim())}';
+    final list = await _requestList(path);
+    return list
+        .map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> getProductoDetalle(int id) async {
+    return await _request('GET', '/productos/$id');
+  }
+
+  Future<int> crearProducto(Map<String, dynamic> body) async {
+    final data = await _request('POST', '/productos/crear', body: body);
+    return int.parse(data['id_producto'].toString());
+  }
+
+  Future<void> actualizarProducto(int id, Map<String, dynamic> body) async {
+    await _request('POST', '/productos/$id/actualizar', body: body);
+  }
+
+  Future<void> eliminarProducto(int id) async {
+    await _request('POST', '/productos/$id/eliminar');
+  }
+
+  Future<int> copiarProducto(
+      {required int idOrigen, String? nombreProducto}) async {
+    final body = <String, dynamic>{'id_producto_origen': idOrigen};
+    if (nombreProducto != null && nombreProducto.trim().isNotEmpty) {
+      body['nombre_producto'] = nombreProducto.trim();
+    }
+    final data = await _request('POST', '/productos/copiar', body: body);
+    return int.parse(data['id_producto'].toString());
+  }
+
   // ── Mesas ──────────────────────────────────────────────────
   Future<List<MesaResumen>> getMesas() async {
     final list = await _requestList('/mesas');

@@ -9,6 +9,7 @@ import '../services/catalogo_provider.dart';
 import '../utils/theme.dart';
 import 'hacer_pedido_screen.dart';
 import 'login_screen.dart';
+import 'producto_editor_screen.dart';
 
 class MesasScreen extends StatefulWidget {
   const MesasScreen({super.key});
@@ -46,11 +47,12 @@ class _MesasScreenState extends State<MesasScreen> {
     final api = context.read<ApiService>();
     try {
       final lista = await api.getMesas();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _mesas = lista;
           _loading = false;
         });
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -136,6 +138,17 @@ class _MesasScreenState extends State<MesasScreen> {
       appBar: AppBar(
         title: Text('Mesas · ${sesion.usuario?.nombre ?? ''}'),
         actions: [
+          if (sesion.esSupervisor || sesion.esAdmin)
+            IconButton(
+              tooltip: 'Productos',
+              icon: const Icon(Icons.inventory_2_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ProductoEditorScreen(),
+                ),
+              ),
+            ),
           // ── Versión ──────────────────────────────────────────
           if (_version.isNotEmpty)
             Center(
@@ -223,7 +236,8 @@ class _MesaTile extends StatelessWidget {
 
   String _minutosTexto(String? value) {
     if (value == null || value.isEmpty) return '--';
-    final normalized = value.contains(' ') ? value.replaceFirst(' ', 'T') : value;
+    final normalized =
+        value.contains(' ') ? value.replaceFirst(' ', 'T') : value;
     final parsed = DateTime.tryParse(normalized);
     if (parsed == null) return '--';
     final mins = DateTime.now().difference(parsed).inMinutes;
@@ -324,7 +338,8 @@ class _AbrirMesaDialogState extends State<_AbrirMesaDialog> {
                 style: TextStyle(
                   fontSize: 26,
                   letterSpacing: _numero.isEmpty ? 0 : 3,
-                  color: _numero.isEmpty ? AppTheme.colorTextoGris : Colors.white,
+                  color:
+                      _numero.isEmpty ? AppTheme.colorTextoGris : Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -335,7 +350,9 @@ class _AbrirMesaDialogState extends State<_AbrirMesaDialog> {
               child: _TecladoMesa(
                 onTecla: _tecla,
                 onBorrar: _borrar,
-                onOk: _numero.isNotEmpty ? () => Navigator.pop(context, _numero) : null,
+                onOk: _numero.isNotEmpty
+                    ? () => Navigator.pop(context, _numero)
+                    : null,
               ),
             ),
           ],
@@ -403,7 +420,8 @@ class _TecladoMesa extends StatelessWidget {
               child: _BotonAccionMesa(
                 color: const Color(0xFF333333),
                 onTap: onBorrar,
-                child: const Icon(Icons.backspace_outlined, color: Colors.white70, size: 24),
+                child: const Icon(Icons.backspace_outlined,
+                    color: Colors.white70, size: 24),
               ),
             ),
           ),
@@ -423,7 +441,10 @@ class _TecladoMesa extends StatelessWidget {
                 onTap: onOk,
                 child: const Text(
                   'OK',
-                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -451,7 +472,8 @@ class _BotonNumMesa extends StatelessWidget {
         child: Center(
           child: Text(
             label,
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
           ),
         ),
       ),
@@ -464,7 +486,8 @@ class _BotonAccionMesa extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
 
-  const _BotonAccionMesa({required this.child, required this.color, this.onTap});
+  const _BotonAccionMesa(
+      {required this.child, required this.color, this.onTap});
 
   @override
   Widget build(BuildContext context) {

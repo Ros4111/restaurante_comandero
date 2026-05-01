@@ -47,6 +47,32 @@ if ($uri === '/catalogo' && $method === 'GET') {
     endpointCatalogo($payload);
 }
 
+// Productos (admin / supervisor)
+if ($uri === '/productos' && $method === 'GET') {
+    require __DIR__ . '/endpoints/productos.php';
+    endpointProductosListar($payload);
+}
+if (preg_match('#^/productos/(\d+)$#', $uri, $m) && $method === 'GET') {
+    require __DIR__ . '/endpoints/productos.php';
+    endpointProductoGet($payload, (int)$m[1]);
+}
+if ($uri === '/productos/crear' && $method === 'POST') {
+    require __DIR__ . '/endpoints/productos.php';
+    endpointProductoCrear($payload);
+}
+if (preg_match('#^/productos/(\d+)/actualizar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/productos.php';
+    endpointProductoActualizar($payload, (int)$m[1]);
+}
+if (preg_match('#^/productos/(\d+)/eliminar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/productos.php';
+    endpointProductoEliminar($payload, (int)$m[1]);
+}
+if ($uri === '/productos/copiar' && $method === 'POST') {
+    require __DIR__ . '/endpoints/productos.php';
+    endpointProductoCopiar($payload);
+}
+
 // Mesas
 if ($uri === '/mesas' && $method === 'GET') {
     require __DIR__ . '/endpoints/mesas.php';

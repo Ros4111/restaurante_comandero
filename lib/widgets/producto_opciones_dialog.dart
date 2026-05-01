@@ -82,18 +82,43 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
       backgroundColor: AppTheme.colorTarjeta,
       child: SizedBox(
         width: widthPantalla,
-        child: SingleChildScrollView(
+        child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.only(left: 8, right: 6, top: 6, bottom: 2),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              spacing: 0,
               children: [
-                Text(widget.producto.nombre,
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold)),
                 Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.producto.nombre,
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _valido ? _confirmar : null,
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        padding: EdgeInsets.zero,
+                      ),
+                      child: Icon(
+                        widget.modoEdicion ? Icons.save : Icons.add,
+                        size: 30,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                   children: [
                     const Text('Cantidad',
                         style: TextStyle(
@@ -112,92 +137,94 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                       icon: const Icon(Icons.add_circle_outline, size: 32),
                       onPressed: () => setState(() => _cantidad++),
                     ),
-                  ],
-                ),
+                  ]),
 
-                // Grupos de opciones
-                ...widget.grupos.map((g) {
-                  final opts =
-                      widget.catalogo.opcionesDeGrupo(widget.producto.id, g.id);
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Divider(height: 8),
-                      Text(g.nombre,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15)),
-                      Theme(
-                        data: Theme.of(context).copyWith(
-                          listTileTheme: const ListTileThemeData(
-                            horizontalTitleGap: 2,
-                            minLeadingWidth: 0,
-                            minVerticalPadding: 0,
-                            dense: true,
-                          ),
-                        ),
-                        child: RadioGroup<String>(
-                          groupValue: _seleccion[g.id]?.nombre,
-                          onChanged: (v) {
-                            if (v != null) {
-                              final opcion =
-                                  opts.firstWhere((o) => o.nombre == v);
-                              setState(() {
-                                _seleccion[g.id] = OpcionElegida(
-                                  nombre: opcion.nombre,
-                                  predeterminado: opcion.predeterminado,
-                                );
-                              });
-                            }
-                          },
-                          child: Column(
+                        // Grupos de opciones
+                        ...widget.grupos.map((g) {
+                          final opts = widget.catalogo
+                              .opcionesDeGrupo(widget.producto.id, g.id);
+                          return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: opts
-                                .map((o) => RadioListTile<String>(
-                                      value: o.nombre,
-                                      title: Text(o.nombre,
-                                          style: const TextStyle(fontSize: 16)),
-                                      activeColor: AppTheme.colorPrimario,
-                                      dense: true,
-                                      visualDensity: const VisualDensity(
-                                        horizontal: -4,
-                                        vertical: -4,
-                                      ),
-                                      contentPadding: EdgeInsets.zero,
-                                      radioScaleFactor: 1.0,
-                                      radioInnerRadius:
-                                          WidgetStateProperty.resolveWith<double>(
-                                              (states) {
-                                        if (states
-                                            .contains(WidgetState.selected)) {
-                                          return 3.0;
-                                        }
-                                        return 0.0;
-                                      }),
-                                    ))
-                                .toList(),
+                            children: [
+                              const Divider(height: 8),
+                              Text(g.nombre,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 15)),
+                              Theme(
+                                data: Theme.of(context).copyWith(
+                                  listTileTheme: const ListTileThemeData(
+                                    horizontalTitleGap: 2,
+                                    minLeadingWidth: 0,
+                                    minVerticalPadding: 0,
+                                    dense: true,
+                                  ),
+                                ),
+                                child: RadioGroup<String>(
+                                  groupValue: _seleccion[g.id]?.nombre,
+                                  onChanged: (v) {
+                                    if (v != null) {
+                                      final opcion =
+                                          opts.firstWhere((o) => o.nombre == v);
+                                      setState(() {
+                                        _seleccion[g.id] = OpcionElegida(
+                                          nombre: opcion.nombre,
+                                          predeterminado: opcion.predeterminado,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: opts
+                                        .map((o) => RadioListTile<String>(
+                                              value: o.nombre,
+                                              title: Text(o.nombre,
+                                                  style: const TextStyle(fontSize: 16)),
+                                              activeColor: AppTheme.colorPrimario,
+                                              dense: true,
+                                              visualDensity: const VisualDensity(
+                                                horizontal: -4,
+                                                vertical: -4,
+                                              ),
+                                              contentPadding: EdgeInsets.zero,
+                                              radioScaleFactor: 1.0,
+                                              radioInnerRadius: WidgetStateProperty
+                                                  .resolveWith<double>((states) {
+                                                if (states.contains(
+                                                    WidgetState.selected)) {
+                                                  return 3.0;
+                                                }
+                                                return 0.0;
+                                              }),
+                                            ))
+                                        .toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        }),
+
+                        // Comentario
+                        const Divider(height: 8),
+                        const Text('Comentario (opcional)',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 15)),
+                        const SizedBox(height: 4),
+                        TextField(
+                          controller: _comentCtrl,
+                          style: const TextStyle(fontSize: 16),
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            hintText: 'Sin cebolla, sin gluten...',
+                            filled: true,
+                            fillColor: AppTheme.colorSuperficie,
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                }),
-
-                // Comentario
-                const Divider(height: 8),
-                const Text('Comentario (opcional)',
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 4),
-                TextField(
-                  controller: _comentCtrl,
-                  style: const TextStyle(fontSize: 16),
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    hintText: 'Sin cebolla, sin gluten...',
-                    filled: true,
-                    fillColor: AppTheme.colorSuperficie,
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -223,12 +250,6 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                           child: const Text('Cancelar'),
                         ),
                       ),
-                    ),
-                    ElevatedButton(
-                      onPressed: _valido ? _confirmar : null,
-                      child: Icon(
-                          widget.modoEdicion ? Icons.save_outlined : Icons.add,
-                          size: 30),
                     ),
                   ],
                 ),
