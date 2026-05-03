@@ -130,12 +130,14 @@ class Impresora {
   final String nombre;
   final String? ip;
   final int puerto;
+  final String tablaCodigos;
 
   Impresora({
     required this.id,
     required this.nombre,
     this.ip,
     required this.puerto,
+    this.tablaCodigos = 'CP1252',
   });
 
   factory Impresora.fromJson(Map<String, dynamic> j) => Impresora(
@@ -143,6 +145,9 @@ class Impresora {
         nombre: j['nombre']?.toString() ?? '',
         ip: j['ip']?.toString(),
         puerto: int.parse((j['puerto'] ?? 0).toString()),
+        tablaCodigos: (j['tabla_codigos']?.toString().trim().isNotEmpty ?? false)
+            ? j['tabla_codigos'].toString().trim().toUpperCase()
+            : 'CP1252',
       );
 }
 

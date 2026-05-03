@@ -76,7 +76,12 @@ class _InicioState extends State<Inicio> {
   }
 
   void _goConfig() => Navigator.pushReplacement(
-      context, MaterialPageRoute(builder: (_) => const ConfigScreen()));
+      context,
+      MaterialPageRoute(
+          builder: (_) => const ConfigScreen(
+                showUrlConfig: true,
+                showPrinterConfig: false,
+              )));
 
   void _goLogin() => Navigator.pushReplacement(
       context, MaterialPageRoute(builder: (_) => const LoginScreen()));

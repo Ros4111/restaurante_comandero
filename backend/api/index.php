@@ -28,6 +28,10 @@ if ($uri === '/usuarios/lista' && $method === 'GET') {
     require __DIR__ . '/endpoints/usuarios.php';
     endpointUsuariosLista();
 }
+if ($uri === '/auth/salt' && $method === 'GET') {
+    require __DIR__ . '/endpoints/auth.php';
+    endpointLoginSalt();
+}
 
 if ($uri === '/auth/login' && $method === 'POST') {
     require __DIR__ . '/endpoints/auth.php';
@@ -38,6 +42,23 @@ if ($uri === '/health' && $method === 'GET') {
     jsonOk(['status' => 'ok', 'ts' => date('c')]);
 }
 
+if ($uri === '/impresoras/config' && $method === 'GET') {
+    require __DIR__ . '/endpoints/impresoras.php';
+    endpointImpresorasConfigGet();
+}
+if ($uri === '/impresoras/config' && $method === 'POST') {
+    require __DIR__ . '/endpoints/impresoras.php';
+    endpointImpresorasConfigSave();
+}
+if ($uri === '/impresoras/config/crear' && $method === 'POST') {
+    require __DIR__ . '/endpoints/impresoras.php';
+    endpointImpresoraCrear();
+}
+if (preg_match('#^/impresoras/config/(\d+)/eliminar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/impresoras.php';
+    endpointImpresoraEliminar((int)$m[1]);
+}
+
 // ── Rutas protegidas ─────────────────────────────────────────
 $payload = requireAuth();
 
@@ -45,6 +66,24 @@ $payload = requireAuth();
 if ($uri === '/catalogo' && $method === 'GET') {
     require __DIR__ . '/endpoints/catalogo.php';
     endpointCatalogo($payload);
+}
+
+// Usuarios admin
+if ($uri === '/usuarios/admin/lista' && $method === 'GET') {
+    require __DIR__ . '/endpoints/usuarios.php';
+    endpointUsuariosAdminLista($payload);
+}
+if ($uri === '/usuarios/admin/crear' && $method === 'POST') {
+    require __DIR__ . '/endpoints/usuarios.php';
+    endpointUsuariosAdminCrear($payload);
+}
+if (preg_match('#^/usuarios/admin/(\d+)/actualizar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/usuarios.php';
+    endpointUsuariosAdminActualizar($payload, (int)$m[1]);
+}
+if (preg_match('#^/usuarios/admin/(\d+)/eliminar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/usuarios.php';
+    endpointUsuariosAdminEliminar($payload, (int)$m[1]);
 }
 
 // Productos (admin / supervisor)

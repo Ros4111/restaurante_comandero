@@ -1,6 +1,7 @@
 // lib/services/sunmi_service.dart
 // Servicio de impresión por red ESC/POS (TCP 9100).
 import 'dart:io';
+
 import 'package:esc_pos_printer_plus/esc_pos_printer_plus.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -10,7 +11,32 @@ import '../models/models.dart';
 import 'package:intl/intl.dart';
 
 class SunmiService {
-  static const String _escPosCodeTable = 'CP1252';
+  /// Solo imprimir tickets POS si el dispositivo está en la WiFi 192.168.100.x
+  /// (también acepta comprobación sin puntos: prefijo `192168100`).
+  static Future<bool> _ipDispositivoPermiteImpresionTickets() async {
+    if (kIsWeb) return false;
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (addr.type != InternetAddressType.IPv4) continue;
+          if (_esIp192168100(addr.address)) return true;
+        }
+      }
+    } catch (e) {
+      debugPrint('No se pudo comprobar IP del dispositivo: $e');
+    }
+    return false;
+  }
+
+  static bool _esIp192168100(String ip) {
+    if (ip.startsWith('192.168.100.')) return true;
+    final compact = ip.replaceAll('.', '');
+    return compact.startsWith('192168100');
+  }
 
   static Future<void> imprimirConfirmacion({
     required int idMesa,
@@ -25,6 +51,13 @@ class SunmiService {
       if (lineasNuevas.isEmpty &&
           lineasEliminadas.isEmpty &&
           lineasMovidas.isEmpty) {
+        return;
+      }
+
+      if (!await _ipDispositivoPermiteImpresionTickets()) {
+        debugPrint(
+          'Impresión ticket POS omitida: la IP del dispositivo no está en 192.168.100.x',
+        );
         return;
       }
 
@@ -63,9 +96,13 @@ class SunmiService {
           continue;
         }
 
-        printer.setGlobalCodeTable(_escPosCodeTable);
-        printer.text(
-          _escPosSafeText('Mesa $idMesa $hora'),
+        final tablaCodigos = (cfg?.tablaCodigos.trim().isNotEmpty ?? false)
+            ? cfg!.tablaCodigos.trim().toUpperCase()
+            : 'CP1252';
+        printer.setGlobalCodeTable(tablaCodigos);
+        _printEscPosText(
+          printer,
+          'Mesa $idMesa $hora',
           styles: const PosStyles(
             align: PosAlign.center,
             bold: true,
@@ -73,30 +110,33 @@ class SunmiService {
             height: PosTextSize.size2,
           ),
         );
-        printer.text(
-          _escPosSafeText('Le atendió: $camarero'),
+        _printEscPosText(
+          printer,
+          'Le atendió: $camarero',
           styles: const PosStyles(align: PosAlign.center),
         );
         printer.hr();
 
         final nuevasDeImpresora = grouped[idImp] ?? <LineaPedido>[];
         for (final l in nuevasDeImpresora) {
-          printer.text(
-            _escPosSafeText(
-              '${l.cantidad}x ${l.textoImprimir.isNotEmpty ? l.textoImprimir : l.nombreProducto}',
-            ),
+          final lineaTexto = '${l.cantidad}x${l.textoImprimir}';
+
+          _printEscPosText(
+            printer,
+            lineaTexto,
             styles: const PosStyles(
               bold: true,
-              width: PosTextSize.size2,
+              width: PosTextSize.size1,
               height: PosTextSize.size2,
             ),
           );
           for (final opcion in l.opcionesNoPredeterminadas) {
-            printer.text(_escPosSafeText('>> $opcion'));
+            _printEscPosText(printer, '> $opcion');
           }
           if (l.comentario.trim().isNotEmpty) {
-            printer.text(
-              _escPosSafeText('Nota: ${l.comentario}'),
+            _printEscPosText(
+              printer,
+              'Nota: ${l.comentario}',
               styles: const PosStyles(bold: true),
             );
           }
@@ -104,31 +144,29 @@ class SunmiService {
 
         if (lineasEliminadas.isNotEmpty) {
           printer.hr();
-          printer.text(
-            _escPosSafeText('CANCELADO:'),
+          _printEscPosText(
+            printer,
+            'CANCELADO:',
             styles: const PosStyles(bold: true),
           );
           for (final l in lineasEliminadas) {
-            printer
-                .text(_escPosSafeText(' ${l.cantidad}x ${l.nombreProducto}'));
+            _printEscPosText(printer, ' ${l.cantidad}x ${l.textoImprimir}');
           }
         }
 
         if (lineasMovidas.isNotEmpty) {
           printer.hr();
-          printer.text(
-            _escPosSafeText('MOVIDO:'),
+          _printEscPosText(
+            printer,
+            'MOVIDO:',
             styles: const PosStyles(bold: true),
           );
           for (final l in lineasMovidas) {
-            printer
-                .text(_escPosSafeText(' ${l.cantidad}x ${l.nombreProducto}'));
-            printer.text(
-              _escPosSafeText('   Mesa $idMesa -> Mesa ${l.moverAMesa}'),
-            );
+            _printEscPosText(printer, ' ${l.cantidad}x ${l.textoImprimir}');
+            _printEscPosText(
+                printer, '   Mesa $idMesa -> Mesa ${l.moverAMesa}');
           }
         }
-
         printer.emptyLines(3);
         printer.cut();
         await Future.delayed(const Duration(milliseconds: 900));
@@ -144,7 +182,7 @@ class SunmiService {
     try {
       final info = await DeviceInfoPlugin().androidInfo;
       final fabricante = info.manufacturer.trim().toUpperCase();
-      return fabricante == 'SUNMI' || fabricante.contains('SUNMI');
+      return fabricante == 'SUNMI2' || fabricante.contains('SUNMI2');
     } catch (e) {
       debugPrint('No se pudo validar fabricante: $e');
       return false;
@@ -189,7 +227,7 @@ class SunmiService {
     if (lineasNuevas.isNotEmpty) {
       for (final l in lineasNuevas) {
         await SunmiPrinter.printText(
-          '${l.cantidad}x${l.nombreProducto}',
+          '${l.cantidad}x${l.textoImprimir}',
           style: SunmiTextStyle(bold: true, fontSize: 35, reverse: false),
         );
         for (final opcion in l.opcionesNoPredeterminadas) {
@@ -218,7 +256,7 @@ class SunmiService {
       );
       for (final l in lineasEliminadas) {
         await SunmiPrinter.printText(
-          ' ${l.cantidad}x${l.nombreProducto}',
+          ' ${l.cantidad}x${l.textoImprimir}',
           style: SunmiTextStyle(reverse: false),
         );
       }
@@ -235,7 +273,7 @@ class SunmiService {
       );
       for (final l in lineasMovidas) {
         await SunmiPrinter.printText(
-          ' ${l.cantidad}x${l.nombreProducto}',
+          ' ${l.cantidad}x${l.textoImprimir}',
           style: SunmiTextStyle(reverse: false),
         );
         await SunmiPrinter.printText(
@@ -244,19 +282,82 @@ class SunmiService {
         );
       }
     }
-
     await SunmiPrinter.lineWrap(3);
     await SunmiPrinter.cutPaper();
   }
 
   static String _escPosSafeText(String input) {
-    return input
+    var normalized = input
         .replaceAll('’', "'")
         .replaceAll('‘', "'")
         .replaceAll('“', '"')
         .replaceAll('”', '"')
         .replaceAll('–', '-')
         .replaceAll('—', '-')
-        .replaceAll('…', '...');
+        .replaceAll('…', '...')
+        .replaceAll('´', "'")
+        .replaceAll('`', "'")
+        .replaceAll('•', '*')
+        .replaceAll('·', '.')
+        .replaceAll('−', '-')
+        .replaceAll('×', 'x')
+        .replaceAll('÷', '/')
+        .replaceAll('º', 'o')
+        .replaceAll('ª', 'a')
+        .replaceAll('`', "'");
+
+    // Fracciones Unicode frecuentes -> texto ASCII legible.
+    normalized = normalized
+        .replaceAll('⅓', '1/3')
+        .replaceAll('¼', '1/4')
+        .replaceAll('¾', '3/4')
+        .replaceAll('⅛', '1/8')
+        .replaceAll('⅕', '1/5')
+        .replaceAll('½', '1/2')
+        .replaceAll('€', 'Eur');
+
+    final out = StringBuffer();
+    for (final rune in normalized.runes) {
+      // Mantener ASCII + latin-1 (acentos y ñ típicos en CP1252) + saltos.
+      if ((rune >= 32 && rune <= 126) ||
+          (rune >= 160 && rune <= 255) ||
+          rune == 10 ||
+          rune == 13 ||
+          rune == 9) {
+        out.write(String.fromCharCode(rune));
+      } else {
+        // Cualquier carácter especial se representa en hexadecimal visible.
+        out.write('[0x${rune.toRadixString(16).toUpperCase()}]');
+      }
+    }
+    return out.toString();
+  }
+
+  static void _printEscPosText(
+    NetworkPrinter printer,
+    String text, {
+    PosStyles styles = const PosStyles(),
+  }) {
+    final buffer = StringBuffer();
+
+    void flushBuffer() {
+      if (buffer.isEmpty) return;
+
+      printer.text(_escPosSafeText(buffer.toString()), styles: styles);
+      buffer.clear();
+    }
+
+    for (final rune in text.runes) {
+      if (rune == 0x20AC) {
+        // Evita depender de tabla de códigos para el símbolo euro.
+        buffer.write('Eur');
+      } else if (rune == 0x00BD) {
+        // Fuerza formato legible en todos los firmwares.
+        buffer.write('1/2');
+      } else {
+        buffer.writeCharCode(rune);
+      }
+    }
+    flushBuffer();
   }
 }

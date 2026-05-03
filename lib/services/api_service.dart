@@ -148,6 +148,95 @@ class ApiService extends ChangeNotifier {
     return data;
   }
 
+  Future<List<Map<String, dynamic>>> getUsuariosAdmin() async {
+    final list = await _requestList('/usuarios/admin/lista');
+    return list
+        .map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
+        .toList();
+  }
+
+  Future<int> crearUsuarioAdmin(Map<String, dynamic> body) async {
+    final data = await _request('POST', '/usuarios/admin/crear', body: body);
+    return int.parse(data['id_usuario'].toString());
+  }
+
+  Future<void> actualizarUsuarioAdmin(int idUsuario, Map<String, dynamic> body) async {
+    await _request('POST', '/usuarios/admin/$idUsuario/actualizar', body: body);
+  }
+
+  Future<void> eliminarUsuarioAdmin(int idUsuario) async {
+    await _request('POST', '/usuarios/admin/$idUsuario/eliminar');
+  }
+
+  Future<List<Map<String, dynamic>>> getImpresorasConfig() async {
+    final uri = Uri.parse('$_baseUrl/api/impresoras/config');
+    final res = await http.get(uri).timeout(const Duration(seconds: 8));
+    final data = json.decode(res.body) as Map<String, dynamic>;
+    if (data['ok'] == true) {
+      final list = data['data'] as List<dynamic>;
+      return list
+          .map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
+          .toList();
+    }
+    throw ApiException(data['error']?.toString() ?? 'Error al cargar impresoras',
+        statusCode: res.statusCode);
+  }
+
+  Future<void> saveImpresorasConfig(List<Map<String, dynamic>> impresoras) async {
+    final uri = Uri.parse('$_baseUrl/api/impresoras/config');
+    final res = await http
+        .post(uri,
+            headers: {'Content-Type': 'application/json; charset=utf-8'},
+            body: json.encode({'impresoras': impresoras}))
+        .timeout(const Duration(seconds: 15));
+    final data = json.decode(res.body) as Map<String, dynamic>;
+    if (data['ok'] != true) {
+      throw ApiException(
+          data['error']?.toString() ?? 'Error al guardar impresoras',
+          statusCode: res.statusCode);
+    }
+  }
+
+  Future<Map<String, dynamic>> crearImpresoraConfig({
+    String nombre = '',
+    String ip = '',
+    int puerto = 9100,
+    String tablaCodigos = 'CP1252',
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/impresoras/config/crear');
+    final res = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json; charset=utf-8'},
+          body: json.encode({
+            'nombre': nombre,
+            'ip': ip,
+            'puerto': puerto,
+            'tabla_codigos': tablaCodigos,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    final data = json.decode(res.body) as Map<String, dynamic>;
+    if (data['ok'] == true) {
+      return Map<String, dynamic>.from(data['data'] as Map<dynamic, dynamic>);
+    }
+    throw ApiException(data['error']?.toString() ?? 'Error al crear impresora',
+        statusCode: res.statusCode);
+  }
+
+  Future<void> eliminarImpresoraConfig(int idImpresora) async {
+    final uri = Uri.parse('$_baseUrl/api/impresoras/config/$idImpresora/eliminar');
+    final res = await http
+        .post(uri, headers: {'Content-Type': 'application/json; charset=utf-8'})
+        .timeout(const Duration(seconds: 15));
+    final data = json.decode(res.body) as Map<String, dynamic>;
+    if (data['ok'] != true) {
+      throw ApiException(
+          data['error']?.toString() ?? 'Error al eliminar impresora',
+          statusCode: res.statusCode);
+    }
+  }
+
   // ── Catálogo ───────────────────────────────────────────────
   Future<Map<String, dynamic>> getCatalogo() async {
     return await _request('GET', '/catalogo');

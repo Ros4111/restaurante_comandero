@@ -160,7 +160,12 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 10),
           TextButton(
             onPressed: () => Navigator.pushReplacement(
-                context, MaterialPageRoute(builder: (_) => const ConfigScreen())),
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const ConfigScreen(
+                          showUrlConfig: true,
+                          showPrinterConfig: false,
+                        ))),
             child: const Text('Configurar servidor'),
           ),
         ]),

@@ -6,6 +6,9 @@ import '../models/models.dart';
 import '../services/catalogo_provider.dart';
 import '../utils/theme.dart';
 
+/// Texto de categorías / subcategorías (los productos siguen en blanco).
+const _colorTextoCategoria = Color.fromARGB(255, 99, 148, 100);
+
 class CatalogoPanel extends StatefulWidget {
   final void Function(Producto) onTap;
   final void Function(Producto) onLongPress;
@@ -50,6 +53,7 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
                 TextButton(
                   onPressed: _pop,
                   style: TextButton.styleFrom(
+                    foregroundColor: _colorTextoCategoria,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     minimumSize: Size.zero,
@@ -58,7 +62,10 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
                   child: Text(
                     '<- ${_stack.last?.nombre ?? ''}',
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: _colorTextoCategoria,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -66,7 +73,11 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
                 const Expanded(
                   child: Text(
                     'Menú',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: _colorTextoCategoria,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -131,7 +142,10 @@ class _CatTile extends StatelessWidget {
         child: Text(
           cat.nombre,
           style: const TextStyle(
-              color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+            color: _colorTextoCategoria,
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+          ),
           overflow: TextOverflow.ellipsis,
         ),
       ),

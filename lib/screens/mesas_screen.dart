@@ -9,7 +9,7 @@ import '../services/catalogo_provider.dart';
 import '../utils/theme.dart';
 import 'hacer_pedido_screen.dart';
 import 'login_screen.dart';
-import 'producto_editor_screen.dart';
+import 'settings_menu_screen.dart';
 
 class MesasScreen extends StatefulWidget {
   const MesasScreen({super.key});
@@ -138,14 +138,14 @@ class _MesasScreenState extends State<MesasScreen> {
       appBar: AppBar(
         title: Text('Mesas · ${sesion.usuario?.nombre ?? ''}'),
         actions: [
-          if (sesion.esSupervisor || sesion.esAdmin)
+          if (sesion.esAdmin)
             IconButton(
-              tooltip: 'Productos',
-              icon: const Icon(Icons.inventory_2_outlined),
+              tooltip: 'Configuración',
+              icon: const Icon(Icons.settings),
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const ProductoEditorScreen(),
+                  builder: (_) => const SettingsMenuScreen(),
                 ),
               ),
             ),

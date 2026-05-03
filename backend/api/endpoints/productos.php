@@ -238,7 +238,7 @@ function endpointProductoCopiar(array $payload): void {
     try {
         $ins = $db->prepare(
             'INSERT INTO productos (nombre_producto, id_categoria, texto_imprimir, id_impresora, disponible, orden)
-             VALUES (?,?,?,?,?,?,?)'
+             VALUES (?,?,?,?,?,?)'
         );
         $ins->execute([
             $nombreNuevo,

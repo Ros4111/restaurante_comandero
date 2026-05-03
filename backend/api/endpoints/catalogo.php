@@ -2,8 +2,21 @@
 // backend/api/endpoints/catalogo.php
 declare(strict_types=1);
 
+function ensureTablaCodigosColumn(PDO $db): void {
+    try {
+        $check = $db->query("SHOW COLUMNS FROM impresoras LIKE 'tabla_codigos'");
+        $exists = $check && $check->fetch();
+        if (!$exists) {
+            $db->exec("ALTER TABLE impresoras ADD COLUMN tabla_codigos VARCHAR(32) NOT NULL DEFAULT 'CP1252' AFTER puerto");
+        }
+    } catch (Throwable $e) {
+        // Si falla el ALTER o la comprobación, el SELECT posterior devolverá error controlado.
+    }
+}
+
 function endpointCatalogo(array $payload): void {
     $db = getDB();
+    ensureTablaCodigosColumn($db);
 
     $cats = $db->query(
         'SELECT id_categoria, id_categoria_padre, nombre_categoria, nombre_imagen, disponible, orden FROM categoria_producto ORDER BY orden'
@@ -30,7 +43,7 @@ function endpointCatalogo(array $payload): void {
 
     // Impresoras
     $impresoras = $db->query(
-        'SELECT id_impresora, nombre, ip, puerto FROM impresoras'
+        'SELECT id_impresora, nombre, ip, puerto, tabla_codigos FROM impresoras'
     )->fetchAll();
 
     jsonOk([
