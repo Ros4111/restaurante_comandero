@@ -50,7 +50,8 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
     final form = await _showUsuarioDialog(usuario: u);
     if (form == null) return;
     final api = context.read<ApiService>();
-    await api.actualizarUsuarioAdmin(int.parse(u['id_usuario'].toString()), form);
+    await api.actualizarUsuarioAdmin(
+        int.parse(u['id_usuario'].toString()), form);
     await _cargar();
   }
 
@@ -78,7 +79,8 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
     await _cargar();
   }
 
-  Future<Map<String, dynamic>?> _showUsuarioDialog({Map<String, dynamic>? usuario}) async {
+  Future<Map<String, dynamic>?> _showUsuarioDialog(
+      {Map<String, dynamic>? usuario}) async {
     final nombreCtrl = TextEditingController(
       text: usuario?['nombre_usuario']?.toString() ?? '',
     );
@@ -121,10 +123,12 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: permisos,
+                  initialValue: permisos,
                   items: const [
-                    DropdownMenuItem(value: 'camarero', child: Text('Camarero')),
-                    DropdownMenuItem(value: 'supervisor', child: Text('Supervisor')),
+                    DropdownMenuItem(
+                        value: 'camarero', child: Text('Camarero')),
+                    DropdownMenuItem(
+                        value: 'supervisor', child: Text('Supervisor')),
                     DropdownMenuItem(value: 'admin', child: Text('Admin')),
                   ],
                   onChanged: (v) {
@@ -193,7 +197,8 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _usuarios.isEmpty
               ? const Center(
-                  child: Text('Sin usuarios', style: TextStyle(color: AppTheme.colorTextoGris)),
+                  child: Text('Sin usuarios',
+                      style: TextStyle(color: AppTheme.colorTextoGris)),
                 )
               : ListView.separated(
                   padding: const EdgeInsets.all(12),
@@ -207,14 +212,17 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
                         color: AppTheme.colorTarjeta,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: activo ? Colors.white12 : Colors.red.withValues(alpha: 0.35),
+                          color: activo
+                              ? Colors.white12
+                              : Colors.red.withValues(alpha: 0.35),
                         ),
                       ),
                       child: ListTile(
                         title: Text(
                           '${u['nombre_usuario']} (${u['permisos']})',
                           style: TextStyle(
-                            color: activo ? Colors.white : AppTheme.colorTextoGris,
+                            color:
+                                activo ? Colors.white : AppTheme.colorTextoGris,
                           ),
                         ),
                         subtitle: Text(
@@ -231,7 +239,8 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
                             IconButton(
                               tooltip: 'Eliminar',
                               onPressed: () => _eliminar(u),
-                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.redAccent),
                             ),
                           ],
                         ),

@@ -38,6 +38,13 @@ class SunmiService {
     return compact.startsWith('192168100');
   }
 
+  /// Ticket ESC/POS por red: cantidad 1 → solo nombre; en otro caso `Nx` o ` Nx ` si [sangria].
+  static String _escPosLineaProductoRed(int cantidad, String texto,
+      {bool sangria = false}) {
+    if (cantidad == 1) return sangria ? ' $texto' : texto;
+    return sangria ? ' ${cantidad}x $texto' : '${cantidad}x$texto';
+  }
+
   static Future<void> imprimirConfirmacion({
     required int idMesa,
     required String camarero,
@@ -119,7 +126,8 @@ class SunmiService {
 
         final nuevasDeImpresora = grouped[idImp] ?? <LineaPedido>[];
         for (final l in nuevasDeImpresora) {
-          final lineaTexto = '${l.cantidad}x${l.textoImprimir}';
+          final lineaTexto =
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimir);
 
           _printEscPosText(
             printer,
@@ -150,7 +158,11 @@ class SunmiService {
             styles: const PosStyles(bold: true),
           );
           for (final l in lineasEliminadas) {
-            _printEscPosText(printer, ' ${l.cantidad}x ${l.textoImprimir}');
+            _printEscPosText(
+              printer,
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimir,
+                  sangria: true),
+            );
           }
         }
 
@@ -162,7 +174,11 @@ class SunmiService {
             styles: const PosStyles(bold: true),
           );
           for (final l in lineasMovidas) {
-            _printEscPosText(printer, ' ${l.cantidad}x ${l.textoImprimir}');
+            _printEscPosText(
+              printer,
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimir,
+                  sangria: true),
+            );
             _printEscPosText(
                 printer, '   Mesa $idMesa -> Mesa ${l.moverAMesa}');
           }

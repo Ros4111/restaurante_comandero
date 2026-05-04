@@ -234,13 +234,98 @@ class _MesaTile extends StatelessWidget {
   const _MesaTile(
       {required this.mesa, required this.sesion, required this.onTap});
 
-  String _minutosTexto(String? value) {
+  /// `yyyy-MM-dd` + espacio(s)/tab/`T` + hora (MySQL / API). Evita fallos con
+  /// varios espacios entre fecha y hora (`tryParse` no lo admite).
+  static final _reMysqlDatetime = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})[\sT]+(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$',
+  );
+
+  DateTime _dateTimeDesdeMatchMysql(RegExpMatch m) {
+    final y = int.parse(m.group(1)!);
+    final mo = int.parse(m.group(2)!);
+    final d = int.parse(m.group(3)!);
+    final h = int.parse(m.group(4)!);
+    final mi = int.parse(m.group(5)!);
+    final s = int.parse(m.group(6)!);
+    var ms = 0;
+    final frac = m.group(7);
+    if (frac != null && frac.isNotEmpty) {
+      final head = frac.length >= 3 ? frac.substring(0, 3) : frac.padRight(3, '0');
+      ms = int.tryParse(head) ?? 0;
+    }
+    return DateTime(y, mo, d, h, mi, s, ms);
+  }
+
+  /// Fecha/hora local sin ajuste “futuro → día anterior” (para extraer día de creación).
+  DateTime? _tryParseFechaHoraLocal(String trimmed) {
+    final mm = _reMysqlDatetime.firstMatch(trimmed);
+    if (mm != null) return _dateTimeDesdeMatchMysql(mm);
+    final iso = trimmed.replaceFirstMapped(
+      RegExp(r'^(\d{4}-\d{2}-\d{2})\s+'),
+      (m) => '${m.group(1)}T',
+    );
+    return DateTime.tryParse(iso);
+  }
+
+  /// Día de calendario de [horaCreacion] para anclar `hora_ultima` tipo TIME (`HH:mm:ss`).
+  DateTime? _diaCalendarioDesdeHoraCreacion(String? horaCreacion) {
+    if (horaCreacion == null || horaCreacion.trim().isEmpty) return null;
+    final dt = _tryParseFechaHoraLocal(horaCreacion.trim());
+    if (dt == null) return null;
+    return DateTime(dt.year, dt.month, dt.day);
+  }
+
+  /// Fecha/hora del servidor en instante local. Si queda en el futuro (p. ej. solo
+  /// `HH:mm` mal anclada), retrocede días de calendario.
+  DateTime? _parseInstanteMesa(
+    String raw,
+    DateTime ahora, {
+    DateTime? diaAnclaParaSoloHora,
+  }) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    final desdeMysqlOIso = _tryParseFechaHoraLocal(trimmed);
+    if (desdeMysqlOIso != null) {
+      return _ajustarDiaSiQuedaEnFuturo(desdeMysqlOIso, ahora);
+    }
+
+    // Solo hora HH:mm o HH:mm:ss: si la API envía TIME sin fecha, usar el día de
+    // `hora_creacion` (no el de “hoy”), para no desplazar ~24 h al cruzar medianoche.
+    final soloHora =
+        RegExp(r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$').firstMatch(trimmed);
+    if (soloHora != null) {
+      final ancla = diaAnclaParaSoloHora ?? ahora;
+      final h = int.parse(soloHora.group(1)!);
+      final m = int.parse(soloHora.group(2)!);
+      final s = int.tryParse(soloHora.group(3) ?? '') ?? 0;
+      final candidate = DateTime(ancla.year, ancla.month, ancla.day, h, m, s);
+      return _ajustarDiaSiQuedaEnFuturo(candidate, ahora);
+    }
+
+    return null;
+  }
+
+  DateTime _ajustarDiaSiQuedaEnFuturo(DateTime parsed, DateTime ahora) {
+    if (!parsed.isAfter(ahora)) return parsed;
+    // Desfase breve de reloj (servidor/cliente): no interpretar como "día siguiente".
+    if (parsed.difference(ahora) <= const Duration(minutes: 2)) {
+      return ahora;
+    }
+    var d = parsed;
+    for (var i = 0; i < 400 && d.isAfter(ahora); i++) {
+      d = d.subtract(const Duration(days: 1));
+    }
+    return d;
+  }
+
+  String _minutosTexto(String? value, {DateTime? diaAnclaParaSoloHora}) {
     if (value == null || value.isEmpty) return '--';
-    final normalized =
-        value.contains(' ') ? value.replaceFirst(' ', 'T') : value;
-    final parsed = DateTime.tryParse(normalized);
+    final ahora = DateTime.now();
+    final parsed =
+        _parseInstanteMesa(value, ahora, diaAnclaParaSoloHora: diaAnclaParaSoloHora);
     if (parsed == null) return '--';
-    final mins = DateTime.now().difference(parsed).inMinutes;
+    final mins = ahora.difference(parsed).inMinutes;
     if (mins > 999) return 'Mucho';
     if (mins < 0) return '0';
     return '$mins';
@@ -248,6 +333,7 @@ class _MesaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final diaCreacion = _diaCalendarioDesdeHoraCreacion(mesa.horaCreacion);
     final bloqueadaPorOtro = mesa.idUsuarioBloqueo != null &&
         mesa.idUsuarioBloqueo != sesion.usuario?.id &&
         mesa.horaBloqueo != null;
@@ -275,7 +361,7 @@ class _MesaTile extends StatelessWidget {
                     fontSize: 13, color: AppTheme.colorTextoGris)),
             //const SizedBox(height: 2),
             Text(
-                '${_minutosTexto(mesa.horaCreacion)} -- ${_minutosTexto(mesa.horaUltimaAccion)}',
+                '${_minutosTexto(mesa.horaCreacion)} -- ${_minutosTexto(mesa.horaUltimaAccion, diaAnclaParaSoloHora: diaCreacion)}',
                 style: const TextStyle(
                     fontSize: 13, color: AppTheme.colorTextoGris)),
             if (bloqueadaPorOtro) ...[

@@ -1,5 +1,8 @@
 // lib/widgets/producto_opciones_dialog.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/models.dart';
 import '../services/catalogo_provider.dart';
 import '../utils/theme.dart';
@@ -32,12 +35,25 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
   final Map<int, OpcionElegida> _seleccion = {};
   late int _cantidad;
   late final TextEditingController _comentCtrl;
+  late final FocusNode _comentFocus;
+
+  void _syncTeclado() {
+    // Windows: evita asserts de HardwareKeyboard (p. ej. Alt ya “pulsada”) al
+    // abrir el diálogo o al enfocar el TextField tras Alt-Tab / menú sistema.
+    unawaited(HardwareKeyboard.instance.syncKeyboardState());
+  }
 
   @override
   void initState() {
     super.initState();
     _cantidad = widget.cantidadInicial ?? 1;
     _comentCtrl = TextEditingController(text: widget.comentarioInicial ?? '');
+    _comentFocus = FocusNode();
+    _comentFocus.addListener(() {
+      if (_comentFocus.hasFocus) _syncTeclado();
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncTeclado());
 
     if (widget.opcionesIniciales != null) {
       _seleccion.addAll(widget.opcionesIniciales!);
@@ -60,6 +76,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
 
   @override
   void dispose() {
+    _comentFocus.dispose();
     _comentCtrl.dispose();
     super.dispose();
   }
@@ -212,6 +229,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                                 fontWeight: FontWeight.bold, fontSize: 15)),
                         const SizedBox(height: 4),
                         TextField(
+                          focusNode: _comentFocus,
                           controller: _comentCtrl,
                           style: const TextStyle(fontSize: 16),
                           maxLines: 2,
