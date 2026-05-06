@@ -342,9 +342,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         title: Text('Mesa ${widget.idMesa}'),
         actions: [
           if (mesaPv.soloLectura)
-            Chip(
-              label: Text('Solo lectura · ${mesaPv.nombreBloqueador ?? ''}'),
-              backgroundColor: Colors.orange[800],
+            InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => Navigator.pop(context),
+              child: Chip(
+                label: Text('Solo lectura · ${mesaPv.nombreBloqueador ?? ''}'),
+                backgroundColor: Colors.orange[800],
+              ),
             )
           else ...[
             IconButton(

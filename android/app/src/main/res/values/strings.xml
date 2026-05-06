@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_admin_explanation">Permite al TPV usar el modo de aplicación bloqueada (kiosco) en este teléfono. Actívalo solo en terminales del local.</string>
+</resources>

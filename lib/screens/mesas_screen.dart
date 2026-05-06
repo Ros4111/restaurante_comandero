@@ -18,6 +18,10 @@ class MesasScreen extends StatefulWidget {
 }
 
 class _MesasScreenState extends State<MesasScreen> {
+  static const Duration _lockTtl = Duration(minutes: 3);
+  static final RegExp _reMysqlDatetime = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})[\sT]+(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$',
+  );
   List<MesaResumen> _mesas = [];
   bool _loading = true;
   Timer? _refreshTimer;
@@ -46,7 +50,40 @@ class _MesasScreenState extends State<MesasScreen> {
   Future<void> _cargar() async {
     final api = context.read<ApiService>();
     try {
-      final lista = await api.getMesas();
+      final results = await Future.wait([
+        api.getMesas(),
+        api.getUsuarios(),
+      ]);
+      final mesas = results[0] as List<MesaResumen>;
+      final usuarios = results[1] as List<Usuario>;
+      final usuariosById = {for (final u in usuarios) u.id: u.nombre};
+      final now = DateTime.now();
+      final ahora = DateTime(
+          now.year, now.month, now.day, now.hour, now.minute, now.second);
+
+      final lista = mesas.map((m) {
+        if (m.idMesa == 11) {
+          print(
+              'Mesa ${m.idMesa}: bloqueo=${m.horaBloqueo}, ahora=$ahora, bloqueoVigente=${_bloqueoVigente(m.horaBloqueo, ahora)}');
+        }
+        final bloqueoVigente = _bloqueoVigente(m.horaBloqueo, ahora) &&
+            (m.idUsuarioBloqueo ?? 0) > 0;
+        final idBloqueo = bloqueoVigente ? m.idUsuarioBloqueo : null;
+        final nombreBloqueo =
+            idBloqueo != null ? usuariosById[idBloqueo] : null;
+        return MesaResumen(
+          idPedido: m.idPedido,
+          idMesa: m.idMesa,
+          estado: m.estado,
+          idUsuarioBloqueo: idBloqueo,
+          nombreUsuarioBloqueo: nombreBloqueo,
+          horaBloqueo: m.horaBloqueo,
+          horaCreacion: m.horaCreacion,
+          horaUltimaAccion: m.horaUltimaAccion,
+          totalLineas: m.totalLineas,
+        );
+      }).toList();
+
       if (mounted) {
         setState(() {
           _mesas = lista;
@@ -56,6 +93,48 @@ class _MesasScreenState extends State<MesasScreen> {
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  bool _bloqueoVigente(String? horaBloqueo, DateTime ahora) {
+    if (horaBloqueo == null || horaBloqueo.trim().isEmpty) return false;
+    final raw = horaBloqueo.trim();
+    DateTime? parsed;
+
+    // Formato MySQL típico: yyyy-MM-dd HH:mm:ss(.uuuuuu)
+    final mysqlMatch = _reMysqlDatetime.firstMatch(raw);
+    if (mysqlMatch != null) {
+      final y = int.parse(mysqlMatch.group(1)!);
+      final mo = int.parse(mysqlMatch.group(2)!);
+      final d = int.parse(mysqlMatch.group(3)!);
+      final h = int.parse(mysqlMatch.group(4)!);
+      final mi = int.parse(mysqlMatch.group(5)!);
+      final s = int.parse(mysqlMatch.group(6)!);
+      final frac = mysqlMatch.group(7);
+      final ms = frac == null || frac.isEmpty
+          ? 0
+          : int.parse((frac.length >= 3
+              ? frac.substring(0, 3)
+              : frac.padRight(3, '0')));
+      parsed = DateTime(y, mo, d, h, mi, s, ms);
+    }
+
+    // Fallback ISO-like parse.
+    parsed ??= DateTime.tryParse(raw.replaceAll(' ', 'T'));
+    if (parsed == null) {
+      final onlyTime =
+          RegExp(r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$').firstMatch(raw);
+      if (onlyTime != null) {
+        final h = int.parse(onlyTime.group(1)!);
+        final m = int.parse(onlyTime.group(2)!);
+        final s = int.tryParse(onlyTime.group(3) ?? '') ?? 0;
+        parsed = DateTime(ahora.year, ahora.month, ahora.day, h, m, s);
+      }
+    }
+    if (parsed == null) return false;
+    if (parsed.isAfter(ahora)) {
+      parsed = parsed.subtract(const Duration(days: 1));
+    }
+    return ahora.difference(parsed) < _lockTtl;
   }
 
   Future<void> _abrirMesa() async {
@@ -250,7 +329,8 @@ class _MesaTile extends StatelessWidget {
     var ms = 0;
     final frac = m.group(7);
     if (frac != null && frac.isNotEmpty) {
-      final head = frac.length >= 3 ? frac.substring(0, 3) : frac.padRight(3, '0');
+      final head =
+          frac.length >= 3 ? frac.substring(0, 3) : frac.padRight(3, '0');
       ms = int.tryParse(head) ?? 0;
     }
     return DateTime(y, mo, d, h, mi, s, ms);
@@ -322,8 +402,8 @@ class _MesaTile extends StatelessWidget {
   String _minutosTexto(String? value, {DateTime? diaAnclaParaSoloHora}) {
     if (value == null || value.isEmpty) return '--';
     final ahora = DateTime.now();
-    final parsed =
-        _parseInstanteMesa(value, ahora, diaAnclaParaSoloHora: diaAnclaParaSoloHora);
+    final parsed = _parseInstanteMesa(value, ahora,
+        diaAnclaParaSoloHora: diaAnclaParaSoloHora);
     if (parsed == null) return '--';
     final mins = ahora.difference(parsed).inMinutes;
     if (mins > 999) return 'Mucho';
@@ -335,8 +415,7 @@ class _MesaTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final diaCreacion = _diaCalendarioDesdeHoraCreacion(mesa.horaCreacion);
     final bloqueadaPorOtro = mesa.idUsuarioBloqueo != null &&
-        mesa.idUsuarioBloqueo != sesion.usuario?.id &&
-        mesa.horaBloqueo != null;
+        mesa.idUsuarioBloqueo != sesion.usuario?.id;
 
     return GestureDetector(
       onTap: onTap,

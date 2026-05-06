@@ -2,39 +2,27 @@
 // backend/api/endpoints/auth.php
 declare(strict_types=1);
 
-function endpointLoginSalt(): void {
-    $idUsuario = (int)($_GET['id_usuario'] ?? 0);
-    if ($idUsuario <= 0) jsonError('id_usuario inválido', 400);
-    $db = getDB();
-    $st = $db->prepare('SELECT salt FROM usuarios WHERE id_usuario = ? AND activo = 1');
-    $st->execute([$idUsuario]);
-    $salt = $st->fetchColumn();
-    if (!$salt) jsonError('Usuario no encontrado', 404);
-    jsonOk(['salt' => $salt]);
-}
-
 function endpointLogin(): void {
     $body = getBody();
     $idUsuario = (int)($body['id_usuario'] ?? 0);
-    $password  = trim($body['password'] ?? '');
-    $passwordHashClient = trim((string)($body['password_hash'] ?? ''));
+    $passwordSha256 = trim((string)($body['password_sha256'] ?? ''));
 
-    if (!$idUsuario || ($password === '' && $passwordHashClient === '')) {
+    if (!$idUsuario || $passwordSha256 === '') {
         jsonError('Datos incompletos', 400);
+    }
+    if (!preg_match('/^[a-f0-9]{64}$/', $passwordSha256)) {
+        jsonError('password_sha256 inválido', 400);
     }
 
     $db = getDB();
-    $st = $db->prepare('SELECT id_usuario, nombre_usuario, password_hash, salt, permisos
+    $st = $db->prepare('SELECT id_usuario, nombre_usuario, password_hash, permisos
                          FROM usuarios WHERE id_usuario = ? AND activo = 1');
     $st->execute([$idUsuario]);
     $user = $st->fetch();
 
     if (!$user) jsonError('Usuario no encontrado', 404);
 
-    $hash = $passwordHashClient !== ''
-        ? $passwordHashClient
-        : hash('sha256', $user['salt'] . $password);
-    if (!hash_equals($user['password_hash'], $hash)) {
+    if (!hash_equals((string)$user['password_hash'], $passwordSha256)) {
         jsonError('Contraseña incorrecta', 401);
     }
 

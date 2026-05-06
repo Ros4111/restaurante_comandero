@@ -6,15 +6,10 @@ declare(strict_types=1);
 function endpointMesasListar(array $payload): void {
     $db = getDB();
     $rows = $db->query(
-        'SELECT pc.id_pedido, pc.id_mesa, pc.hora_creacion, pc.hora_ultima_accion,
-                pc.estado_mesa, pc.id_usuario_bloqueo, pc.hora_bloqueo,
-                u.nombre_usuario AS nombre_usuario_bloqueo,
-                COUNT(pd.id_linea) AS total_lineas
-           FROM pedido_cabecera pc
-      LEFT JOIN usuarios u ON u.id_usuario = pc.id_usuario_bloqueo
-      LEFT JOIN pedido_detalles pd ON pd.id_pedido = pc.id_pedido
-          GROUP BY pc.id_pedido
-          ORDER BY pc.id_mesa'
+        'SELECT `id_pedido`, `id_mesa`, `hora_creacion`, `id_usuario_creacion`,
+                `hora_ultima_accion`, `estado_mesa`, `id_usuario_bloqueo`, `hora_bloqueo`
+           FROM `pedido_cabecera`
+          ORDER BY `id_mesa`'
     )->fetchAll();
     jsonOk($rows);
 }
@@ -35,8 +30,9 @@ function endpointMesaAbrir(array $payload): void {
     $db->beginTransaction();
     try {
         $st = $db->prepare(
-            'INSERT INTO pedido_cabecera (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo)
-             VALUES (?, ?, ?, NOW())'
+            'INSERT INTO pedido_cabecera
+             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion)
+             VALUES (?, ?, ?, NOW(), NULL)'
         );
         $st->execute([$mesa, $payload['sub'], $payload['sub']]);
         $id = $db->lastInsertId();

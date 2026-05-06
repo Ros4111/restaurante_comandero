@@ -158,13 +158,16 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
                 final orden = int.tryParse(ordenCtrl.text.trim()) ?? 0;
                 if (nombre.isEmpty) return;
                 if (usuario == null && password.isEmpty) return;
-                Navigator.pop(ctx, {
+                final payload = <String, dynamic>{
                   'nombre_usuario': nombre,
-                  'password': password,
                   'permisos': permisos,
                   'orden': orden,
                   'activo': activo ? 1 : 0,
-                });
+                };
+                if (password.isNotEmpty) {
+                  payload['password'] = password;
+                }
+                Navigator.pop(ctx, payload);
               },
               child: const Text('Guardar'),
             ),

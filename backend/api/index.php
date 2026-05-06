@@ -28,11 +28,6 @@ if ($uri === '/usuarios/lista' && $method === 'GET') {
     require __DIR__ . '/endpoints/usuarios.php';
     endpointUsuariosLista();
 }
-if ($uri === '/auth/salt' && $method === 'GET') {
-    require __DIR__ . '/endpoints/auth.php';
-    endpointLoginSalt();
-}
-
 if ($uri === '/auth/login' && $method === 'POST') {
     require __DIR__ . '/endpoints/auth.php';
     endpointLogin();

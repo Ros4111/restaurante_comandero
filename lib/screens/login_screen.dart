@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _logging = true; _error = null; });
     final api = context.read<ApiService>();
     try {
-      final data = await api.login(_seleccionado!.id, _pass);
+      final data = await api.login(_seleccionado!.id, _seleccionado!.nombre, _pass);
       api.setToken(data['token']);
 
       final catalogo = await api.getCatalogo();
@@ -195,27 +195,44 @@ class _LoginScreenState extends State<LoginScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.white12),
               ),
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
+              child: GridView.builder(
+                padding: const EdgeInsets.all(8),
                 itemCount: _usuarios.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 3.6,
+                ),
                 itemBuilder: (ctx, i) {
                   final u = _usuarios[i];
                   final sel = _seleccionado?.id == u.id;
-                  return ListTile(
-                    dense: true,
-                    visualDensity: const VisualDensity(vertical: -2),
-                    title: Text(u.nombre,
-                        style: TextStyle(
-                            fontSize: 17,
-                            color: sel ? AppTheme.colorPrimario : AppTheme.colorTexto,
-                            fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
-                    tileColor: sel
+                  return Material(
+                    color: sel
                         ? AppTheme.colorPrimario.withValues(alpha: 0.15)
-                        : null,
-                    onTap: () => setState(() {
-                      _seleccionado = u;
-                      _pass = '';
-                    }),
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => setState(() {
+                        _seleccionado = u;
+                        _pass = '';
+                      }),
+                      child: Center(
+                        child: Text(
+                          u.nombre,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 17,
+                            color: sel
+                                ? AppTheme.colorPrimario
+                                : AppTheme.colorTexto,
+                            fontWeight:
+                                sel ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ),
                   );
                 },
               ),

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 function endpointUsuariosLista(): void {
     $db = getDB();
-    $st = $db->query('SELECT id_usuario, nombre_usuario, permisos, orden
+    $st = $db->query('SELECT id_usuario, nombre_usuario, orden
                        FROM usuarios WHERE activo = 1 ORDER BY orden, nombre_usuario');
     jsonOk($st->fetchAll());
 }
@@ -13,7 +13,7 @@ function endpointUsuariosAdminLista(array $payload): void {
     requireRole($payload, ['admin']);
     $db = getDB();
     $st = $db->query('SELECT id_usuario, nombre_usuario, permisos, orden, activo
-                       FROM usuarios ORDER BY activo DESC, orden, nombre_usuario');
+                       FROM usuarios ORDER BY orden, nombre_usuario where activo = 1');
     jsonOk($st->fetchAll());
 }
 
@@ -21,26 +21,26 @@ function endpointUsuariosAdminCrear(array $payload): void {
     requireRole($payload, ['admin']);
     $body = getBody();
     $nombre = trim((string)($body['nombre_usuario'] ?? ''));
-    $password = trim((string)($body['password'] ?? ''));
+    $passwordSha256 = trim((string)($body['password_sha256'] ?? ''));
     $permisos = trim((string)($body['permisos'] ?? 'camarero'));
     $orden = (int)($body['orden'] ?? 0);
     $activo = !array_key_exists('activo', $body) || !empty($body['activo']) ? 1 : 0;
 
-    if ($nombre === '' || $password === '') {
+    if ($nombre === '' || $passwordSha256 === '') {
         jsonError('Nombre y contraseña son obligatorios', 400);
     }
     if (!in_array($permisos, ['camarero', 'supervisor', 'admin'], true)) {
         jsonError('Permisos inválidos', 400);
     }
-
+    if (!preg_match('/^[a-f0-9]{64}$/', $passwordSha256)) {
+        jsonError('password_sha256 inválido', 400);
+    }
     $db = getDB();
-    $salt = bin2hex(random_bytes(16));
-    $hash = hash('sha256', $salt . $password);
     $st = $db->prepare(
-        'INSERT INTO usuarios (nombre_usuario, password_hash, salt, permisos, orden, activo)
-         VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO usuarios (nombre_usuario, password_hash, permisos, orden, activo)
+         VALUES (?, ?, ?, ?, ?)'
     );
-    $st->execute([$nombre, $hash, $salt, $permisos, $orden, $activo]);
+    $st->execute([$nombre, $passwordSha256, $permisos, $orden, $activo]);
     jsonOk(['id_usuario' => (int)$db->lastInsertId()]);
 }
 
@@ -50,7 +50,7 @@ function endpointUsuariosAdminActualizar(array $payload, int $idUsuario): void {
 
     $body = getBody();
     $nombre = trim((string)($body['nombre_usuario'] ?? ''));
-    $password = trim((string)($body['password'] ?? ''));
+    $passwordSha256 = trim((string)($body['password_sha256'] ?? ''));
     $permisos = trim((string)($body['permisos'] ?? 'camarero'));
     $orden = (int)($body['orden'] ?? 0);
     $activo = !array_key_exists('activo', $body) || !empty($body['activo']) ? 1 : 0;
@@ -63,15 +63,16 @@ function endpointUsuariosAdminActualizar(array $payload, int $idUsuario): void {
     }
 
     $db = getDB();
-    if ($password !== '') {
-        $salt = bin2hex(random_bytes(16));
-        $hash = hash('sha256', $salt . $password);
+    if ($passwordSha256 !== '') {
+        if (!preg_match('/^[a-f0-9]{64}$/', $passwordSha256)) {
+            jsonError('password_sha256 inválido', 400);
+        }
         $st = $db->prepare(
             'UPDATE usuarios
-                SET nombre_usuario = ?, permisos = ?, orden = ?, activo = ?, password_hash = ?, salt = ?
+                SET nombre_usuario = ?, permisos = ?, orden = ?, activo = ?, password_hash = ?
               WHERE id_usuario = ?'
         );
-        $st->execute([$nombre, $permisos, $orden, $activo, $hash, $salt, $idUsuario]);
+        $st->execute([$nombre, $permisos, $orden, $activo, $passwordSha256, $idUsuario]);
     } else {
         $st = $db->prepare(
             'UPDATE usuarios

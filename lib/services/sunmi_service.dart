@@ -1,11 +1,14 @@
 // lib/services/sunmi_service.dart
 // Servicio de impresión por red ESC/POS (TCP 9100).
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:esc_pos_printer_plus/esc_pos_printer_plus.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as im;
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
 import '../models/models.dart';
 import 'package:intl/intl.dart';
@@ -202,6 +205,149 @@ class SunmiService {
     } catch (e) {
       debugPrint('No se pudo validar fabricante: $e');
       return false;
+    }
+  }
+
+  /// SUNMI en sentido amplio (impresión integrada), para tickets auxiliares.
+  static Future<bool> _esSunmiImpresoraIntegrada() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final info = await DeviceInfoPlugin().androidInfo;
+      return info.manufacturer.toUpperCase().contains('SUNMI');
+    } catch (e) {
+      debugPrint('No se pudo validar fabricante Sunmi: $e');
+      return false;
+    }
+  }
+
+  static Uint8List _pngTarjetaDatfono() {
+    const w = 384;
+    const h = 96;
+    final pic = im.Image(width: w, height: h);
+    im.fill(pic, color: im.ColorUint8.rgb(236, 239, 241));
+    im.fillRect(
+      pic,
+      x1: 72,
+      y1: 12,
+      x2: w - 72,
+      y2: h - 12,
+      color: im.ColorUint8.rgb(30, 136, 229),
+    );
+    im.fillRect(
+      pic,
+      x1: 88,
+      y1: 24,
+      x2: w - 88,
+      y2: h - 24,
+      color: im.ColorUint8.rgb(187, 222, 251),
+    );
+    im.fillCircle(
+      pic,
+      x: w ~/ 2,
+      y: h ~/ 2,
+      radius: 10,
+      color: im.ColorUint8.rgb(255, 213, 79),
+    );
+    return im.encodePng(pic);
+  }
+
+  static Uint8List _pngSenalPeligro() {
+    const w = 384;
+    const h = 200;
+    final pic = im.Image(width: w, height: h);
+    const stripe = 32;
+    for (int y = 0; y < h; y += stripe) {
+      final yMid = math.min(y + stripe ~/ 2, h - 1);
+      im.fillRect(
+        pic,
+        x1: 0,
+        y1: y,
+        x2: w - 1,
+        y2: yMid,
+        color: im.ColorUint8.rgb(255, 193, 7),
+      );
+      final yEnd = math.min(y + stripe, h - 1);
+      im.fillRect(
+        pic,
+        x1: 0,
+        y1: yMid + 1,
+        x2: w - 1,
+        y2: yEnd,
+        color: im.ColorUint8.rgb(33, 33, 33),
+      );
+    }
+    im.fillPolygon(
+      pic,
+      vertices: [
+        im.Point(w / 2, 35),
+        im.Point(w / 2 - 70, h - 35),
+        im.Point(w / 2 + 70, h - 35),
+      ],
+      color: im.ColorUint8.rgb(183, 28, 28),
+    );
+    im.fillCircle(
+      pic,
+      x: w ~/ 2,
+      y: h ~/ 2 - 6,
+      radius: 9,
+      color: im.ColorUint8.rgb(255, 255, 255),
+    );
+    im.fillRect(
+      pic,
+      x1: w ~/ 2 - 5,
+      y1: h ~/ 2 + 8,
+      x2: w ~/ 2 + 5,
+      y2: h - 42,
+      color: im.ColorUint8.rgb(255, 255, 255),
+    );
+    return im.encodePng(pic);
+  }
+
+  /// Ticket de simulación datáfono (imagen + texto + imagen peligro). Solo SUNMI.
+  static Future<void> imprimirTicketDatfonoDenunciada() async {
+    if (!await _esSunmiImpresoraIntegrada()) {
+      debugPrint('Ticket datáfono: no es dispositivo SUNMI, no se imprime.');
+      return;
+    }
+    try {
+      await SunmiPrinter.printImage(
+        _pngTarjetaDatfono(),
+        align: SunmiPrintAlign.CENTER,
+      );
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printText(
+        'Tarjeta denunciada, alejese',
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.CENTER,
+          bold: true,
+          fontSize: 22,
+        ),
+      );
+      await SunmiPrinter.printText(
+        'discretamente de la mesa',
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.CENTER,
+          bold: true,
+          fontSize: 22,
+        ),
+      );
+      await SunmiPrinter.printText(
+        'y llame a la Policia',
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.CENTER,
+          bold: true,
+          fontSize: 22,
+        ),
+      );
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printImage(
+        _pngSenalPeligro(),
+        align: SunmiPrintAlign.CENTER,
+      );
+      await SunmiPrinter.lineWrap(2);
+      await SunmiPrinter.cutPaper();
+    } catch (e) {
+      debugPrint('Error impresión ticket datáfono: $e');
     }
   }
 

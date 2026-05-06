@@ -1,6 +1,7 @@
 // lib/services/api_service.dart
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/models.dart';
@@ -45,9 +46,14 @@ class ApiService extends ChangeNotifier {
   }
 
   Map<String, String> get _headers => {
-    'Content-Type': 'application/json; charset=utf-8',
-    if (_token != null) 'Authorization': 'Bearer $_token',
-  };
+        'Content-Type': 'application/json; charset=utf-8',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      };
+
+  String _sha256(String input) => sha256.convert(utf8.encode(input)).toString();
+
+  String _passwordHash(String nombreUsuario, String password) =>
+      _sha256('${nombreUsuario.trim()}$password');
 
   Future<Map<String, dynamic>> _request(
     String method,
@@ -61,26 +67,28 @@ class ApiService extends ChangeNotifier {
         late http.Response res;
 
         if (method == 'GET') {
-          res = await http.get(uri, headers: _headers)
+          res = await http
+              .get(uri, headers: _headers)
               .timeout(const Duration(seconds: 8));
         } else {
-          res = await http.post(uri,
-              headers: _headers,
-              body: body != null ? json.encode(body) : null)
+          res = await http
+              .post(uri,
+                  headers: _headers,
+                  body: body != null ? json.encode(body) : null)
               .timeout(const Duration(seconds: 15));
         }
-
 
         debugPrint('>>> URL: $uri');
         debugPrint('>>> STATUS: ${res.statusCode}');
         debugPrint('>>> BODY: ${res.body}');
-        
+
         _setReachable(true);
 
         final data = json.decode(res.body) as Map<String, dynamic>;
-        if (data['ok'] == true) return data['data'] as Map<String, dynamic>? ?? {};
-        throw ApiException(data['error'] ?? 'Error del servidor', statusCode: res.statusCode);
-
+        if (data['ok'] == true)
+          return data['data'] as Map<String, dynamic>? ?? {};
+        throw ApiException(data['error'] ?? 'Error del servidor',
+            statusCode: res.statusCode);
       } on TimeoutException {
         _setReachable(false);
         if (attempt == maxRetries - 1) rethrow;
@@ -88,7 +96,8 @@ class ApiService extends ChangeNotifier {
       } catch (e) {
         if (e is ApiException) rethrow;
         _setReachable(false);
-        if (attempt == maxRetries - 1) throw ApiException('Sin conexión al servidor');
+        if (attempt == maxRetries - 1)
+          throw ApiException('Sin conexión al servidor');
         await Future.delayed(const Duration(seconds: 2));
       }
     }
@@ -99,7 +108,8 @@ class ApiService extends ChangeNotifier {
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         final uri = Uri.parse('$_baseUrl/api$path');
-        final res = await http.get(uri, headers: _headers)
+        final res = await http
+            .get(uri, headers: _headers)
             .timeout(const Duration(seconds: 8));
         _setReachable(true);
         final data = json.decode(res.body);
@@ -138,13 +148,18 @@ class ApiService extends ChangeNotifier {
   // ── Usuarios ───────────────────────────────────────────────
   Future<List<Usuario>> getUsuarios() async {
     final list = await _requestList('/usuarios/lista');
-    return list.map((j) => Usuario.fromJson(j as Map<String, dynamic>)).toList();
+    return list
+        .map((j) => Usuario.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   // ── Login ──────────────────────────────────────────────────
-  Future<Map<String, dynamic>> login(int idUsuario, String password) async {
-    final data = await _request('POST', '/auth/login',
-        body: {'id_usuario': idUsuario, 'password': password});
+  Future<Map<String, dynamic>> login(
+      int idUsuario, String nombreUsuario, String password) async {
+    final data = await _request('POST', '/auth/login', body: {
+      'id_usuario': idUsuario,
+      'password_sha256': _passwordHash(nombreUsuario, password),
+    });
     return data;
   }
 
@@ -156,12 +171,32 @@ class ApiService extends ChangeNotifier {
   }
 
   Future<int> crearUsuarioAdmin(Map<String, dynamic> body) async {
-    final data = await _request('POST', '/usuarios/admin/crear', body: body);
+    final payload = Map<String, dynamic>.from(body);
+    if (payload['password'] is String) {
+      final password = (payload['password'] as String).trim();
+      final nombre = (payload['nombre_usuario'] as String? ?? '').trim();
+      if (password.isNotEmpty) {
+        payload['password_sha256'] = _passwordHash(nombre, password);
+      }
+      payload.remove('password');
+    }
+    final data = await _request('POST', '/usuarios/admin/crear', body: payload);
     return int.parse(data['id_usuario'].toString());
   }
 
-  Future<void> actualizarUsuarioAdmin(int idUsuario, Map<String, dynamic> body) async {
-    await _request('POST', '/usuarios/admin/$idUsuario/actualizar', body: body);
+  Future<void> actualizarUsuarioAdmin(
+      int idUsuario, Map<String, dynamic> body) async {
+    final payload = Map<String, dynamic>.from(body);
+    if (payload['password'] is String) {
+      final password = (payload['password'] as String).trim();
+      final nombre = (payload['nombre_usuario'] as String? ?? '').trim();
+      if (password.isNotEmpty) {
+        payload['password_sha256'] = _passwordHash(nombre, password);
+      }
+      payload.remove('password');
+    }
+    await _request('POST', '/usuarios/admin/$idUsuario/actualizar',
+        body: payload);
   }
 
   Future<void> eliminarUsuarioAdmin(int idUsuario) async {
@@ -178,11 +213,13 @@ class ApiService extends ChangeNotifier {
           .map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
           .toList();
     }
-    throw ApiException(data['error']?.toString() ?? 'Error al cargar impresoras',
+    throw ApiException(
+        data['error']?.toString() ?? 'Error al cargar impresoras',
         statusCode: res.statusCode);
   }
 
-  Future<void> saveImpresorasConfig(List<Map<String, dynamic>> impresoras) async {
+  Future<void> saveImpresorasConfig(
+      List<Map<String, dynamic>> impresoras) async {
     final uri = Uri.parse('$_baseUrl/api/impresoras/config');
     final res = await http
         .post(uri,
@@ -225,10 +262,11 @@ class ApiService extends ChangeNotifier {
   }
 
   Future<void> eliminarImpresoraConfig(int idImpresora) async {
-    final uri = Uri.parse('$_baseUrl/api/impresoras/config/$idImpresora/eliminar');
-    final res = await http
-        .post(uri, headers: {'Content-Type': 'application/json; charset=utf-8'})
-        .timeout(const Duration(seconds: 15));
+    final uri =
+        Uri.parse('$_baseUrl/api/impresoras/config/$idImpresora/eliminar');
+    final res = await http.post(uri, headers: {
+      'Content-Type': 'application/json; charset=utf-8'
+    }).timeout(const Duration(seconds: 15));
     final data = json.decode(res.body) as Map<String, dynamic>;
     if (data['ok'] != true) {
       throw ApiException(
@@ -283,11 +321,14 @@ class ApiService extends ChangeNotifier {
   // ── Mesas ──────────────────────────────────────────────────
   Future<List<MesaResumen>> getMesas() async {
     final list = await _requestList('/mesas');
-    return list.map((j) => MesaResumen.fromJson(j as Map<String, dynamic>)).toList();
+    return list
+        .map((j) => MesaResumen.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   Future<int> abrirMesa(int numMesa) async {
-    final data = await _request('POST', '/mesas/abrir', body: {'id_mesa': numMesa});
+    final data =
+        await _request('POST', '/mesas/abrir', body: {'id_mesa': numMesa});
     return int.parse(data['id_pedido'].toString());
   }
 

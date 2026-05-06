@@ -37,6 +37,8 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
     $db = getDB();
     $db->beginTransaction();
     try {
+        $huboCambios = false;
+
         // Leer cabecera con bloqueo
         $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
         $st->execute([$idPedido]);
@@ -88,6 +90,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
 
                 $db->prepare('DELETE FROM pedido_detalles WHERE id_linea = ?')
                    ->execute([$lid]);
+                $huboCambios = true;
             }
         }
 
@@ -133,6 +136,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                         $payload['name']
                     );
                 }
+                $huboCambios = true;
                 continue; // no actualizar otros campos
             }
 
@@ -145,6 +149,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $db->prepare(
                     'UPDATE pedido_detalles SET cantidad=?, comentario=? WHERE id_linea=?'
                 )->execute([(int)$envRow['cantidad'], $comentNew, $lid]);
+                $huboCambios = true;
             }
         }
 
@@ -172,6 +177,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $maxOrden,
             ]);
             $newId = (int)$db->lastInsertId();
+            $huboCambios = true;
 
             _registrarCambio($db, $payload['sub'], 'añadir', [
                 'id_pedido'  => $idPedido,
@@ -201,9 +207,21 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             )->execute([$idImp, $idPedido, $escpos]);
         }
 
-        // Actualizar hora última acción
-        $db->prepare('UPDATE pedido_cabecera SET hora_ultima_accion=NOW() WHERE id_pedido=?')
-           ->execute([$idPedido]);
+        // Al guardar, liberar bloqueo. Solo tocar hora_ultima_accion si hubo cambios.
+        if ($huboCambios) {
+            $db->prepare(
+                'UPDATE pedido_cabecera
+                    SET hora_ultima_accion = NOW(),
+                        id_usuario_bloqueo = 0
+                  WHERE id_pedido = ?'
+            )->execute([$idPedido]);
+        } else {
+            $db->prepare(
+                'UPDATE pedido_cabecera
+                    SET id_usuario_bloqueo = 0
+                  WHERE id_pedido = ?'
+            )->execute([$idPedido]);
+        }
 
         $db->commit();
         jsonOk(['guardado' => true]);
@@ -252,8 +270,9 @@ function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser): int {
     if ($row) return (int)$row['id_pedido'];
 
     $db->prepare(
-        'INSERT INTO pedido_cabecera (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo)
-         VALUES (?,?,?,NOW())'
+        'INSERT INTO pedido_cabecera
+         (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion)
+         VALUES (?,?,?,NOW(),NULL)'
     )->execute([$idMesa, $idUser, $idUser]);
     return (int)$db->lastInsertId();
 }
