@@ -33,6 +33,8 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
     $body  = getBody();
     $lineas = $body['lineas'] ?? [];   // array de líneas enviadas por el móvil
     if (!is_array($lineas)) jsonError('Formato incorrecto');
+    $terminalSerie = _terminalSerieDesdeBody($body);
+    $nombreCliente = _nombreClienteDesdeBody($body);
 
     $db = getDB();
     $db->beginTransaction();
@@ -46,7 +48,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
 
         // Verificar que el usuario tiene el bloqueo vigente
-        _verificarBloqueoGuardar($cab, $payload);
+        _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
 
         // Leer detalles actuales en BD
         $stDet = $db->prepare('SELECT * FROM pedido_detalles WHERE id_pedido = ?');
@@ -116,7 +118,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             // Mover mesa
             $mesaDest = isset($envRow['mover_a_mesa']) ? (int)$envRow['mover_a_mesa'] : 0;
             if ($mesaDest > 0) {
-                $destPedidoId = _obtenerOCrearPedido($db, $mesaDest, $payload['sub']);
+                $destPedidoId = _obtenerOCrearPedido($db, $mesaDest, $payload['sub'], $terminalSerie);
                 $maxOrden = _maxOrden($db, $destPedidoId);
                 $db->prepare(
                     'UPDATE pedido_detalles SET id_pedido=?, orden=?, impreso=0
@@ -207,20 +209,34 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             )->execute([$idImp, $idPedido, $escpos]);
         }
 
-        // Al guardar, liberar bloqueo. Solo tocar hora_ultima_accion si hubo cambios.
-        if ($huboCambios) {
-            $db->prepare(
-                'UPDATE pedido_cabecera
-                    SET hora_ultima_accion = NOW(),
-                        id_usuario_bloqueo = 0
-                  WHERE id_pedido = ?'
-            )->execute([$idPedido]);
+        // Si el pedido queda sin líneas, eliminar cabecera (mesa abierta sin productos).
+        $stCount = $db->prepare('SELECT COUNT(*) AS c FROM pedido_detalles WHERE id_pedido = ?');
+        $stCount->execute([$idPedido]);
+        $sinLineas = ((int)($stCount->fetch()['c'] ?? 0)) === 0;
+
+        if ($sinLineas) {
+            $db->prepare('DELETE FROM pedido_cabecera WHERE id_pedido = ?')
+               ->execute([$idPedido]);
         } else {
-            $db->prepare(
-                'UPDATE pedido_cabecera
-                    SET id_usuario_bloqueo = 0
-                  WHERE id_pedido = ?'
-            )->execute([$idPedido]);
+            // Al guardar con líneas, liberar bloqueo. Solo tocar hora_ultima_accion si hubo cambios.
+            if ($huboCambios) {
+                $db->prepare(
+                    'UPDATE pedido_cabecera
+                        SET hora_ultima_accion = NOW(),
+                            id_usuario_bloqueo = 0,
+                            terminal_serie_bloqueo = NULL,
+                            nombre_cliente = ?
+                      WHERE id_pedido = ?'
+                )->execute([$nombreCliente, $idPedido]);
+            } else {
+                $db->prepare(
+                    'UPDATE pedido_cabecera
+                        SET id_usuario_bloqueo = 0,
+                            terminal_serie_bloqueo = NULL,
+                            nombre_cliente = ?
+                      WHERE id_pedido = ?'
+                )->execute([$nombreCliente, $idPedido]);
+            }
         }
 
         $db->commit();
@@ -233,10 +249,10 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
 }
 
 // ── Helpers privados ──────────────────────────────────────────
-function _verificarBloqueoGuardar(array $cab, array $payload): void {
+function _verificarBloqueoGuardar(array $cab, array $payload, string $terminalSerie): void {
     if ($payload['rol'] === 'admin') return;
     if (
-        (int)$cab['id_usuario_bloqueo'] !== (int)$payload['sub'] ||
+        ($cab['terminal_serie_bloqueo'] ?? '') !== $terminalSerie ||
         !$cab['hora_bloqueo'] ||
         (strtotime($cab['hora_bloqueo']) + LOCK_TTL) <= time()
     ) {
@@ -263,7 +279,7 @@ function _maxOrden(PDO $db, int $idPedido): int {
     return (int)($st->fetch()['m'] ?? 0);
 }
 
-function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser): int {
+function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser, string $terminalSerie): int {
     $st = $db->prepare('SELECT id_pedido FROM pedido_cabecera WHERE id_mesa = ? LIMIT 1');
     $st->execute([$idMesa]);
     $row = $st->fetch();
@@ -271,10 +287,29 @@ function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser): int {
 
     $db->prepare(
         'INSERT INTO pedido_cabecera
-         (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion)
-         VALUES (?,?,?,NOW(),NULL)'
-    )->execute([$idMesa, $idUser, $idUser]);
+         (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, terminal_serie_bloqueo)
+         VALUES (?,?,?,NOW(),NULL,?)'
+    )->execute([$idMesa, $idUser, $idUser, $terminalSerie]);
     return (int)$db->lastInsertId();
+}
+
+function _terminalSerieDesdeBody(array $body): string {
+    $terminal = trim((string)($body['terminal_serie'] ?? ''));
+    if ($terminal === '') jsonError('Falta terminal_serie', 400);
+    if (strlen($terminal) > 120) {
+        $terminal = substr($terminal, 0, 120);
+    }
+    return $terminal;
+}
+
+function _nombreClienteDesdeBody(array $body): ?string {
+    if (!array_key_exists('nombre_cliente', $body)) return null;
+    $nombre = trim((string)$body['nombre_cliente']);
+    if ($nombre === '') return null;
+    if (strlen($nombre) > 120) {
+        $nombre = substr($nombre, 0, 120);
+    }
+    return $nombre;
 }
 
 // ── Generadores ESC/POS (binario como string) ─────────────────

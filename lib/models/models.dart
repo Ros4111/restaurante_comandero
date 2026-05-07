@@ -283,6 +283,8 @@ class MesaResumen {
   final int? idUsuarioBloqueo;
   final String? nombreUsuarioBloqueo;
   final String? horaBloqueo;
+  final String? terminalSerieBloqueo;
+  final String? nombreCliente;
   final String? horaCreacion;
   final String? horaUltimaAccion;
   final int totalLineas;
@@ -294,6 +296,8 @@ class MesaResumen {
     this.idUsuarioBloqueo,
     this.nombreUsuarioBloqueo,
     this.horaBloqueo,
+    this.terminalSerieBloqueo,
+    this.nombreCliente,
     this.horaCreacion,
     this.horaUltimaAccion,
     required this.totalLineas,
@@ -308,6 +312,8 @@ class MesaResumen {
             : null,
         nombreUsuarioBloqueo: j['nombre_usuario_bloqueo'],
         horaBloqueo: j['hora_bloqueo'],
+        terminalSerieBloqueo: j['terminal_serie_bloqueo']?.toString(),
+        nombreCliente: j['nombre_cliente']?.toString(),
         horaCreacion: j['hora_creacion']?.toString(),
         horaUltimaAccion: j['hora_ultima_accion']?.toString(),
         totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),

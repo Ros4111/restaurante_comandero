@@ -89,6 +89,7 @@ class MesaProvider extends ChangeNotifier {
   bool bloqueadoPorMi = false;
   bool soloLectura = false;
   String? nombreBloqueador;
+  String nombreCliente = '';
   List<LineaPedido> lineas = [];
   List<LineaPedido> _lineasOriginales = [];
 
@@ -104,6 +105,10 @@ class MesaProvider extends ChangeNotifier {
     bloqueadoPorMi = tengoBloqueo;
     soloLectura = !tengoBloqueo;
     nombreBloqueador = bloqueador;
+    final cabecera = data['cabecera'];
+    nombreCliente = (cabecera is Map && cabecera['nombre_cliente'] != null)
+        ? cabecera['nombre_cliente'].toString()
+        : '';
     _lineasBorradas.clear();
 
     final lista = (data['detalles'] as List? ?? [])
@@ -111,6 +116,13 @@ class MesaProvider extends ChangeNotifier {
     lista.sort((a, b) => a.orden.compareTo(b.orden));
     lineas = lista;
     _lineasOriginales = lista.map((l) => l.copyWith()).toList();
+    notifyListeners();
+  }
+
+  void setNombreCliente(String v) {
+    final nuevo = v;
+    if (nuevo == nombreCliente) return;
+    nombreCliente = nuevo;
     notifyListeners();
   }
 
@@ -161,6 +173,7 @@ class MesaProvider extends ChangeNotifier {
     bloqueadoPorMi = false;
     soloLectura = false;
     nombreBloqueador = null;
+    nombreCliente = '';
     lineas.clear();
     _lineasOriginales.clear();
     _lineasBorradas.clear();

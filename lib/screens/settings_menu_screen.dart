@@ -186,11 +186,11 @@ class _AndroidKioskPanelState extends State<_AndroidKioskPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        const Row(
           children: [
             Icon(Icons.smartphone, color: AppTheme.colorPrimario),
-            const SizedBox(width: 8),
-            const Text(
+            SizedBox(width: 8),
+            Text(
               'Modo kiosco (Android)',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),

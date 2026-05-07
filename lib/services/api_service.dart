@@ -1,7 +1,9 @@
 // lib/services/api_service.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/models.dart';
@@ -18,6 +20,7 @@ class ApiService extends ChangeNotifier {
   String _baseUrl = '';
   String? _token;
   bool _serverReachable = true;
+  String? _terminalSerieCache;
 
   String get baseUrl => _baseUrl;
   bool get serverReachable => _serverReachable;
@@ -55,6 +58,36 @@ class ApiService extends ChangeNotifier {
   String _passwordHash(String nombreUsuario, String password) =>
       _sha256('${nombreUsuario.trim()}$password');
 
+  Future<String> terminalSerie() async {
+    if (_terminalSerieCache != null && _terminalSerieCache!.isNotEmpty) {
+      return _terminalSerieCache!;
+    }
+    if (kIsWeb || !Platform.isAndroid) {
+      _terminalSerieCache = 'terminal-no-android';
+      return _terminalSerieCache!;
+    }
+    try {
+      final info = await DeviceInfoPlugin().androidInfo;
+      final candidates = <String?>[
+        info.serialNumber,
+        info.id,
+        info.fingerprint,
+        '${info.manufacturer}-${info.model}',
+      ];
+      final raw = candidates.firstWhere(
+        (v) => v != null && v.trim().isNotEmpty && v.trim() != 'unknown',
+        orElse: () => 'terminal-android',
+      )!;
+      _terminalSerieCache = raw.trim();
+    } catch (_) {
+      _terminalSerieCache = 'terminal-android';
+    }
+    if (_terminalSerieCache!.length > 120) {
+      _terminalSerieCache = _terminalSerieCache!.substring(0, 120);
+    }
+    return _terminalSerieCache!;
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -85,8 +118,9 @@ class ApiService extends ChangeNotifier {
         _setReachable(true);
 
         final data = json.decode(res.body) as Map<String, dynamic>;
-        if (data['ok'] == true)
+        if (data['ok'] == true) {
           return data['data'] as Map<String, dynamic>? ?? {};
+        }
         throw ApiException(data['error'] ?? 'Error del servidor',
             statusCode: res.statusCode);
       } on TimeoutException {
@@ -96,8 +130,9 @@ class ApiService extends ChangeNotifier {
       } catch (e) {
         if (e is ApiException) rethrow;
         _setReachable(false);
-        if (attempt == maxRetries - 1)
+        if (attempt == maxRetries - 1) {
           throw ApiException('Sin conexión al servidor');
+        }
         await Future.delayed(const Duration(seconds: 2));
       }
     }
@@ -327,25 +362,35 @@ class ApiService extends ChangeNotifier {
   }
 
   Future<int> abrirMesa(int numMesa) async {
-    final data =
-        await _request('POST', '/mesas/abrir', body: {'id_mesa': numMesa});
+    final data = await _request('POST', '/mesas/abrir', body: {
+      'id_mesa': numMesa,
+      'terminal_serie': await terminalSerie(),
+    });
     return int.parse(data['id_pedido'].toString());
   }
 
   Future<void> bloquearMesa(int idPedido) async {
-    await _request('POST', '/mesas/$idPedido/bloquear');
+    await _request('POST', '/mesas/$idPedido/bloquear', body: {
+      'terminal_serie': await terminalSerie(),
+    });
   }
 
   Future<void> pingMesa(int idPedido) async {
-    await _request('POST', '/mesas/$idPedido/ping');
+    await _request('POST', '/mesas/$idPedido/ping', body: {
+      'terminal_serie': await terminalSerie(),
+    });
   }
 
   Future<void> cerrarMesa(int idPedido) async {
-    await _request('POST', '/mesas/$idPedido/cerrar');
+    await _request('POST', '/mesas/$idPedido/cerrar', body: {
+      'terminal_serie': await terminalSerie(),
+    });
   }
 
   Future<void> expulsarUsuario(int idPedido) async {
-    await _request('POST', '/mesas/$idPedido/expulsar');
+    await _request('POST', '/mesas/$idPedido/expulsar', body: {
+      'terminal_serie': await terminalSerie(),
+    });
   }
 
   // ── Pedidos ────────────────────────────────────────────────
@@ -353,9 +398,15 @@ class ApiService extends ChangeNotifier {
     return await _request('GET', '/pedidos/$idPedido');
   }
 
-  Future<void> guardarPedido(int idPedido, List<LineaPedido> lineas) async {
+  Future<void> guardarPedido(
+    int idPedido,
+    List<LineaPedido> lineas, {
+    required String nombreCliente,
+  }) async {
     await _request('POST', '/pedidos/$idPedido/guardar', body: {
       'lineas': lineas.map((l) => l.toJson()).toList(),
+      'terminal_serie': await terminalSerie(),
+      'nombre_cliente': nombreCliente.trim(),
     });
   }
 }

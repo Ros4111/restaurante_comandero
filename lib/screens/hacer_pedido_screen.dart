@@ -34,6 +34,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   Timer? _pingTimer;
   bool _guardando = false;
   bool _offline = false;
+  final GlobalKey<CatalogoPanelState> _catalogoKey =
+      GlobalKey<CatalogoPanelState>();
+  final TextEditingController _clienteCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -48,6 +51,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   @override
   void dispose() {
     _pingTimer?.cancel();
+    _clienteCtrl.dispose();
     super.dispose();
   }
 
@@ -64,6 +68,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         tengoBloqueo: widget.bloqueadoPorMi,
         bloqueador: widget.bloqueador,
       );
+      if (_clienteCtrl.text != mesaPv.nombreCliente) {
+        _clienteCtrl.text = mesaPv.nombreCliente;
+      }
       setState(() => _offline = false);
     } catch (_) {
       setState(() => _offline = true);
@@ -77,6 +84,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     try {
       await api.pingMesa(widget.idPedido);
       if (_offline) setState(() => _offline = false);
+    } on ApiException catch (e) {
+      // Solo marcar offline cuando realmente parece un problema de red.
+      if (e.statusCode == null) {
+        setState(() => _offline = true);
+      }
     } catch (_) {
       setState(() => _offline = true);
     }
@@ -97,7 +109,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         mesaPv.lineas.where((l) => l.moverAMesa != null).toList();
 
     try {
-      await api.guardarPedido(widget.idPedido, mesaPv.lineasParaEnviar());
+      await api.guardarPedido(
+        widget.idPedido,
+        mesaPv.lineasParaEnviar(),
+        nombreCliente: mesaPv.nombreCliente,
+      );
 
       final impresoraPorProducto = <int, int>{
         for (final p in catalogo.productos) p.id: p.idImpresora,
@@ -127,10 +143,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     } on ApiException catch (e) {
       if (e.statusCode == 409) {
         _showError('Bloqueo perdido: ${e.message}');
-      } else {
+      } else if (e.statusCode == null) {
         setState(() => _offline = true);
         _showError('Sin conexión. Los cambios se guardarán al reconectar.');
         _scheduleRetryGuardar();
+      } else {
+        // Error de servidor/API: no fingir "sin conexión".
+        _showError(e.message);
       }
     } catch (e) {
       setState(() => _offline = true);
@@ -145,6 +164,29 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     Future.delayed(const Duration(seconds: 10), () {
       if (mounted && _offline) _guardar();
     });
+  }
+
+  Future<void> _salirSinGuardar() async {
+    final confirmarSalida = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: const Text('¿Salir sin Guardar?'),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sí'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmarSalida == true && mounted) {
+      Navigator.pop(context);
+    }
   }
 
   Future<void> _cerrarMesa() async {
@@ -330,100 +372,144 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     return true;
   }
 
+  Future<bool> _onWillPop() async {
+    _catalogoKey.currentState?.volverCategoriaSuperior();
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final mesaPv = context.watch<MesaProvider>();
     final sesion = context.watch<SesionProvider>();
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Text('Mesa ${widget.idMesa}'),
-        actions: [
-          if (mesaPv.soloLectura)
-            InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => Navigator.pop(context),
-              child: Chip(
-                label: Text('Solo lectura · ${mesaPv.nombreBloqueador ?? ''}'),
-                backgroundColor: Colors.orange[800],
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: Row(
+            children: [
+              Text('Mesa ${widget.idMesa}'),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 126,
+                height: 36,
+                child: TextField(
+                  controller: _clienteCtrl,
+                  enabled: !mesaPv.soloLectura,
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                  cursorColor: Colors.white,
+                  textCapitalization: TextCapitalization.words,
+                  maxLength: 120,
+                  onChanged: (v) =>
+                      context.read<MesaProvider>().setNombreCliente(v),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    counterText: '',
+                    hintText: 'Cliente',
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+                    filled: true,
+                    fillColor: Colors.white12,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
               ),
-            )
-          else ...[
-            IconButton(
-              onPressed: _guardando
-                  ? null
-                  : () async {
-                      final guardadoOk = await _guardar();
-                      if (guardadoOk && mounted) {
-                        Navigator.pop(context);
-                      }
-                    },
-              icon: Icon(
-                Icons.save,
-                color: _guardando ? Colors.red : Colors.white,
-                size: 20,
-              ),
-            ),
-            if (sesion.esSupervisor)
-              IconButton(
-                onPressed: _cerrarMesa,
-                tooltip: 'Cerrar mesa',
-                icon: const Icon(Icons.euro, color: Colors.green, size: 22),
-              ),
-          ],
-        ],
-        bottom: _offline || !api.serverReachable
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(28),
-                child: Container(
-                  color: Colors.red[900],
-                  width: double.infinity,
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.wifi_off, color: Colors.white, size: 14),
-                        SizedBox(width: 6),
-                        Text(
-                            'SERVIDOR INACCESIBLE — cambios pendientes de sincronizar',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold)),
-                      ]),
+            ],
+          ),
+          actions: [
+            if (mesaPv.soloLectura)
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => Navigator.pop(context),
+                child: Chip(
+                  label:
+                      Text('Solo lectura · ${mesaPv.nombreBloqueador ?? ''}'),
+                  backgroundColor: Colors.orange[800],
                 ),
               )
-            : null,
-      ),
-      body: Row(
-        children: [
-          // ── Columna izquierda: catálogo ────────────────────
-          Expanded(
-            flex: 1,
-            child: mesaPv.soloLectura
-                ? const Center(
-                    child: Text('Modo solo lectura',
-                        style: TextStyle(
-                            color: AppTheme.colorTextoGris, fontSize: 18)))
-                : CatalogoPanel(
-                    onTap: onProductoTap,
-                    onLongPress: onProductoLongPress,
+            else ...[
+              IconButton(
+                onPressed: _guardando
+                    ? null
+                    : () async {
+                        final guardadoOk = await _guardar();
+                        if (guardadoOk && mounted) {
+                          Navigator.pop(context);
+                        }
+                      },
+                onLongPress: _guardando ? null : _salirSinGuardar,
+                icon: Icon(
+                  Icons.save,
+                  color: _guardando ? Colors.red : Colors.white,
+                  size: 20,
+                ),
+              ),
+              if (sesion.esSupervisor)
+                IconButton(
+                  onPressed: _cerrarMesa,
+                  tooltip: 'Cerrar mesa',
+                  icon: const Icon(Icons.euro, color: Colors.green, size: 22),
+                ),
+            ],
+          ],
+          bottom: _offline || !api.serverReachable
+              ? PreferredSize(
+                  preferredSize: const Size.fromHeight(28),
+                  child: Container(
+                    color: Colors.red[900],
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.wifi_off, color: Colors.white, size: 14),
+                          SizedBox(width: 6),
+                          Text(
+                              'SERVIDOR INACCESIBLE — cambios pendientes de sincronizar',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold)),
+                        ]),
                   ),
-          ),
-          const VerticalDivider(width: 1, color: Color(0xFF333333)),
-          // ── Columna derecha: líneas del pedido ─────────────
-          Expanded(
-            flex: 1,
-            child: LineasPanel(
-              lineas: mesaPv.lineas,
-              soloLectura: mesaPv.soloLectura,
-              onLineaTap: onLineaTap,
+                )
+              : null,
+        ),
+        body: Row(
+          children: [
+            // ── Columna izquierda: catálogo ────────────────────
+            Expanded(
+              flex: 1,
+              child: mesaPv.soloLectura
+                  ? const Center(
+                      child: Text('Modo solo lectura',
+                          style: TextStyle(
+                              color: AppTheme.colorTextoGris, fontSize: 18)))
+                  : CatalogoPanel(
+                      key: _catalogoKey,
+                      onTap: onProductoTap,
+                      onLongPress: onProductoLongPress,
+                    ),
             ),
-          ),
-        ],
+            const VerticalDivider(width: 1, color: Color(0xFF333333)),
+            // ── Columna derecha: líneas del pedido ─────────────
+            Expanded(
+              flex: 1,
+              child: LineasPanel(
+                lineas: mesaPv.lineas,
+                soloLectura: mesaPv.soloLectura,
+                onLineaTap: onLineaTap,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -92,7 +92,8 @@ class _DatafonoSimScreenState extends State<DatafonoSimScreen> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => DatafonoLecturaScreen(importeEtiqueta: '${_textoImporte} €'),
+        builder: (_) =>
+            DatafonoLecturaScreen(importeEtiqueta: '$_textoImporte €'),
       ),
     );
   }
@@ -110,7 +111,8 @@ class _DatafonoSimScreenState extends State<DatafonoSimScreen> {
               child: Container(
                 width: double.infinity,
                 margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                 decoration: BoxDecoration(
                   color: AppTheme.colorTarjeta,
                   borderRadius: BorderRadius.circular(12),
@@ -121,7 +123,8 @@ class _DatafonoSimScreenState extends State<DatafonoSimScreen> {
                   children: [
                     const Text(
                       'Importe a cobrar',
-                      style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 16),
+                      style: TextStyle(
+                          color: AppTheme.colorTextoGris, fontSize: 16),
                     ),
                     const SizedBox(height: 12),
                     FittedBox(
@@ -138,7 +141,8 @@ class _DatafonoSimScreenState extends State<DatafonoSimScreen> {
                     ),
                     const Text(
                       'EUR',
-                      style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 14),
+                      style: TextStyle(
+                          color: AppTheme.colorTextoGris, fontSize: 14),
                     ),
                   ],
                 ),
@@ -335,7 +339,8 @@ class _DatafonoLecturaScreenState extends State<DatafonoLecturaScreen>
                 const Text(
                   'Estableciendo conexión segura con el banco…',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 15),
+                  style:
+                      TextStyle(color: AppTheme.colorTextoGris, fontSize: 15),
                 ),
                 const SizedBox(height: 12),
                 const LinearProgressIndicator(minHeight: 6),
@@ -354,7 +359,8 @@ class _DatafonoLecturaScreenState extends State<DatafonoLecturaScreen>
     if (mounted) {
       setState(() => _enProceso = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Operación finalizada (impresión si hay SUNMI).')),
+        const SnackBar(
+            content: Text('Operación finalizada (impresión si hay SUNMI).')),
       );
     }
   }
@@ -417,7 +423,9 @@ class _DatafonoLecturaScreenState extends State<DatafonoLecturaScreen>
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            _enProceso ? 'Procesando…' : 'Pulsa aquí (zona de lectura)',
+                            _enProceso
+                                ? 'Procesando…'
+                                : 'Pulsa aquí (zona de lectura)',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 20,

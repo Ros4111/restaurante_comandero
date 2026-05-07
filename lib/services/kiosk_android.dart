@@ -45,20 +45,4 @@ abstract final class KioskAndroid {
     if (!disponible) return false;
     return await _channel.invokeMethod<bool>('isInLockTaskMode') ?? false;
   }
-
-  /// Oculta barras del sistema (inmersivo), orientación retrato. Solo Android.
-  static Future<void> aplicarUiModoKiosco() async {
-    if (!disponible) return;
-    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  }
-
-  /// Vuelve a mostrar barras del sistema tras salir del kiosco. Solo Android.
-  static Future<void> restaurarUiTrasKiosco() async {
-    if (!disponible) return;
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-  }
 }

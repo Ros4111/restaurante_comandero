@@ -17,17 +17,19 @@ class CatalogoPanel extends StatefulWidget {
       {super.key, required this.onTap, required this.onLongPress});
 
   @override
-  State<CatalogoPanel> createState() => _CatalogoPanelState();
+  State<CatalogoPanel> createState() => CatalogoPanelState();
 }
 
-class _CatalogoPanelState extends State<CatalogoPanel> {
+class CatalogoPanelState extends State<CatalogoPanel> {
   final List<Categoria?> _stack = [null]; // null = raíz (idPadre=1)
 
   int get _currentId => _stack.last?.id ?? 1;
 
   void _push(Categoria cat) => setState(() => _stack.add(cat));
-  void _pop() {
-    if (_stack.length > 1) setState(() => _stack.removeLast());
+  bool volverCategoriaSuperior() {
+    if (_stack.length <= 1) return false;
+    setState(() => _stack.removeLast());
+    return true;
   }
 
   @override
@@ -51,7 +53,7 @@ class _CatalogoPanelState extends State<CatalogoPanel> {
             children: [
               if (hayAtras)
                 TextButton(
-                  onPressed: _pop,
+                  onPressed: volverCategoriaSuperior,
                   style: TextButton.styleFrom(
                     foregroundColor: _colorTextoCategoria,
                     padding:

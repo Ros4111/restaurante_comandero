@@ -26,6 +26,7 @@ class _MesasScreenState extends State<MesasScreen> {
   bool _loading = true;
   Timer? _refreshTimer;
   String _version = '';
+  String? _terminalSerie;
 
   @override
   void initState() {
@@ -50,13 +51,8 @@ class _MesasScreenState extends State<MesasScreen> {
   Future<void> _cargar() async {
     final api = context.read<ApiService>();
     try {
-      final results = await Future.wait([
-        api.getMesas(),
-        api.getUsuarios(),
-      ]);
-      final mesas = results[0] as List<MesaResumen>;
-      final usuarios = results[1] as List<Usuario>;
-      final usuariosById = {for (final u in usuarios) u.id: u.nombre};
+      _terminalSerie ??= await api.terminalSerie();
+      final mesas = await api.getMesas();
       final now = DateTime.now();
       final ahora = DateTime(
           now.year, now.month, now.day, now.hour, now.minute, now.second);
@@ -67,17 +63,17 @@ class _MesasScreenState extends State<MesasScreen> {
               'Mesa ${m.idMesa}: bloqueo=${m.horaBloqueo}, ahora=$ahora, bloqueoVigente=${_bloqueoVigente(m.horaBloqueo, ahora)}');
         }
         final bloqueoVigente = _bloqueoVigente(m.horaBloqueo, ahora) &&
-            (m.idUsuarioBloqueo ?? 0) > 0;
-        final idBloqueo = bloqueoVigente ? m.idUsuarioBloqueo : null;
-        final nombreBloqueo =
-            idBloqueo != null ? usuariosById[idBloqueo] : null;
+            (m.terminalSerieBloqueo ?? '').isNotEmpty;
+        final terminalBloqueo = bloqueoVigente ? m.terminalSerieBloqueo : null;
         return MesaResumen(
           idPedido: m.idPedido,
           idMesa: m.idMesa,
           estado: m.estado,
-          idUsuarioBloqueo: idBloqueo,
-          nombreUsuarioBloqueo: nombreBloqueo,
+          idUsuarioBloqueo: m.idUsuarioBloqueo,
+          nombreUsuarioBloqueo: terminalBloqueo,
           horaBloqueo: m.horaBloqueo,
+          terminalSerieBloqueo: terminalBloqueo,
+          nombreCliente: m.nombreCliente,
           horaCreacion: m.horaCreacion,
           horaUltimaAccion: m.horaUltimaAccion,
           totalLineas: m.totalLineas,
@@ -286,20 +282,34 @@ class _MesasScreenState extends State<MesasScreen> {
                   child: Text('No hay mesas abiertas',
                       style: TextStyle(
                           fontSize: 20, color: AppTheme.colorTextoGris)))
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 1.1,
-                  ),
-                  itemCount: _mesas.length,
-                  itemBuilder: (ctx, i) => _MesaTile(
-                    mesa: _mesas[i],
-                    sesion: sesion,
-                    onTap: () => _entrarMesa(_mesas[i]),
-                  ),
+              : LayoutBuilder(
+                  builder: (ctx, c) {
+                    const spacing = 12.0;
+                    final tileWidth = (c.maxWidth - 32 - (spacing * 2)) / 3;
+                    final baseHeight = tileWidth / 1.1;
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Wrap(
+                        spacing: spacing,
+                        runSpacing: spacing,
+                        children: _mesas.map((m) {
+                          final tieneNombre =
+                              (m.nombreCliente ?? '').trim().isNotEmpty;
+                          final tileHeight =
+                              tieneNombre ? baseHeight + 22 : baseHeight;
+                          return SizedBox(
+                            width: tileWidth,
+                            height: tileHeight,
+                            child: _MesaTile(
+                              mesa: m,
+                              terminalSerieActual: _terminalSerie,
+                              onTap: () => _entrarMesa(m),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    );
+                  },
                 ),
     );
   }
@@ -307,11 +317,13 @@ class _MesasScreenState extends State<MesasScreen> {
 
 class _MesaTile extends StatelessWidget {
   final MesaResumen mesa;
-  final SesionProvider sesion;
+  final String? terminalSerieActual;
   final VoidCallback onTap;
 
   const _MesaTile(
-      {required this.mesa, required this.sesion, required this.onTap});
+      {required this.mesa,
+      required this.terminalSerieActual,
+      required this.onTap});
 
   /// `yyyy-MM-dd` + espacio(s)/tab/`T` + hora (MySQL / API). Evita fallos con
   /// varios espacios entre fecha y hora (`tryParse` no lo admite).
@@ -414,8 +426,11 @@ class _MesaTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final diaCreacion = _diaCalendarioDesdeHoraCreacion(mesa.horaCreacion);
-    final bloqueadaPorOtro = mesa.idUsuarioBloqueo != null &&
-        mesa.idUsuarioBloqueo != sesion.usuario?.id;
+    final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
+    final nombreCliente = (mesa.nombreCliente ?? '').trim();
+    final bloqueadaPorOtro = serieBloqueo.isNotEmpty &&
+        terminalSerieActual != null &&
+        serieBloqueo != terminalSerieActual;
 
     return GestureDetector(
       onTap: onTap,
@@ -443,12 +458,19 @@ class _MesaTile extends StatelessWidget {
                 '${_minutosTexto(mesa.horaCreacion)} -- ${_minutosTexto(mesa.horaUltimaAccion, diaAnclaParaSoloHora: diaCreacion)}',
                 style: const TextStyle(
                     fontSize: 13, color: AppTheme.colorTextoGris)),
+            if (nombreCliente.isNotEmpty)
+              Text(
+                nombreCliente,
+                style: const TextStyle(
+                    fontSize: 12, color: AppTheme.colorTextoGris),
+              ),
+
             if (bloqueadaPorOtro) ...[
               const SizedBox(height: 2),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Icon(Icons.lock, color: Colors.orange, size: 14),
                 const SizedBox(width: 4),
-                Text(mesa.nombreUsuarioBloqueo ?? '?',
+                Text(serieBloqueo,
                     style: const TextStyle(color: Colors.orange, fontSize: 12)),
               ]),
             ],

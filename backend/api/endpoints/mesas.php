@@ -7,7 +7,8 @@ function endpointMesasListar(array $payload): void {
     $db = getDB();
     $rows = $db->query(
         'SELECT `id_pedido`, `id_mesa`, `hora_creacion`, `id_usuario_creacion`,
-                `hora_ultima_accion`, `estado_mesa`, `id_usuario_bloqueo`, `hora_bloqueo`
+                `hora_ultima_accion`, `estado_mesa`, `id_usuario_bloqueo`, `hora_bloqueo`,
+                `terminal_serie_bloqueo`, `nombre_cliente`
            FROM `pedido_cabecera`
           ORDER BY `id_mesa`'
     )->fetchAll();
@@ -19,6 +20,7 @@ function endpointMesaAbrir(array $payload): void {
     $body  = getBody();
     $mesa  = (int)($body['id_mesa'] ?? 0);
     if ($mesa <= 0) jsonError('Número de mesa inválido');
+    $terminalSerie = _terminalSerieDesdeBody($body);
 
     $db = getDB();
 
@@ -31,10 +33,10 @@ function endpointMesaAbrir(array $payload): void {
     try {
         $st = $db->prepare(
             'INSERT INTO pedido_cabecera
-             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion)
-             VALUES (?, ?, ?, NOW(), NULL)'
+             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, terminal_serie_bloqueo)
+             VALUES (?, ?, ?, NOW(), NOW(), ?)'
         );
-        $st->execute([$mesa, $payload['sub'], $payload['sub']]);
+        $st->execute([$mesa, $payload['sub'], $payload['sub'], $terminalSerie]);
         $id = $db->lastInsertId();
         $db->commit();
         jsonOk(['id_pedido' => $id]);
@@ -46,36 +48,35 @@ function endpointMesaAbrir(array $payload): void {
 
 // ── Bloquear mesa ─────────────────────────────────────────────
 function endpointMesaBloquear(array $payload, int $idPedido): void {
+    $body = getBody();
+    $terminalSerie = _terminalSerieDesdeBody($body);
     $db = getDB();
     $db->beginTransaction();
     try {
         // SELECT FOR UPDATE para atomicidad
         $st = $db->prepare(
-            'SELECT id_usuario_bloqueo, hora_bloqueo
+            'SELECT id_usuario_bloqueo, hora_bloqueo, terminal_serie_bloqueo
                FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE'
         );
         $st->execute([$idPedido]);
         $row = $st->fetch();
         if (!$row) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
 
-        $bloqueoPorOtro = $row['id_usuario_bloqueo'] &&
-                          $row['id_usuario_bloqueo'] != $payload['sub'] &&
+        $bloqueoPorOtro = !empty($row['terminal_serie_bloqueo']) &&
+                          $row['terminal_serie_bloqueo'] !== $terminalSerie &&
                           $row['hora_bloqueo'] &&
                           (strtotime($row['hora_bloqueo']) + LOCK_TTL) > time();
 
         if ($bloqueoPorOtro) {
             $db->rollBack();
-            // Devuelve info del bloqueador para mostrar mensaje al camarero
-            $u = $db->prepare('SELECT nombre_usuario FROM usuarios WHERE id_usuario = ?');
-            $u->execute([$row['id_usuario_bloqueo']]);
-            $nombre = $u->fetch()['nombre_usuario'] ?? 'Desconocido';
-            jsonError("Mesa bloqueada por $nombre", 409);
+            $terminalBloqueador = $row['terminal_serie_bloqueo'] ?? 'Desconocido';
+            jsonError("Mesa bloqueada por terminal $terminalBloqueador", 409);
         }
 
         $db->prepare(
-            'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW()
+            'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW(), terminal_serie_bloqueo=?
               WHERE id_pedido=?'
-        )->execute([$payload['sub'], $idPedido]);
+        )->execute([$payload['sub'], $terminalSerie, $idPedido]);
 
         $db->commit();
         jsonOk(['bloqueado' => true]);
@@ -87,13 +88,15 @@ function endpointMesaBloquear(array $payload, int $idPedido): void {
 
 // ── Ping de bloqueo (cada minuto) ─────────────────────────────
 function endpointMesaPing(array $payload, int $idPedido): void {
+    $body = getBody();
+    $terminalSerie = _terminalSerieDesdeBody($body);
     $db = getDB();
     $st = $db->prepare(
         'UPDATE pedido_cabecera
             SET hora_bloqueo = NOW()
-          WHERE id_pedido = ? AND id_usuario_bloqueo = ?'
+          WHERE id_pedido = ? AND terminal_serie_bloqueo = ?'
     );
-    $st->execute([$idPedido, $payload['sub']]);
+    $st->execute([$idPedido, $terminalSerie]);
     if ($st->rowCount() === 0) jsonError('No tienes el bloqueo de esta mesa', 409);
     jsonOk(['ping' => 'ok']);
 }
@@ -101,16 +104,20 @@ function endpointMesaPing(array $payload, int $idPedido): void {
 // ── Expulsar usuario (solo admin/supervisor) ──────────────────
 function endpointMesaExpulsar(array $payload, int $idPedido): void {
     requireRole($payload, ['admin', 'supervisor']);
+    $body = getBody();
+    $terminalSerie = _terminalSerieDesdeBody($body);
     $db = getDB();
     $db->prepare(
-        'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW()
+        'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW(), terminal_serie_bloqueo=?
           WHERE id_pedido=?'
-    )->execute([$payload['sub'], $idPedido]);
+    )->execute([$payload['sub'], $terminalSerie, $idPedido]);
     jsonOk(['expulsado' => true]);
 }
 
 // ── Cerrar mesa (mover a histórico) ──────────────────────────
 function endpointMesaCerrar(array $payload, int $idPedido): void {
+    $body = getBody();
+    $terminalSerie = _terminalSerieDesdeBody($body);
     $db = getDB();
     $db->beginTransaction();
     try {
@@ -120,7 +127,7 @@ function endpointMesaCerrar(array $payload, int $idPedido): void {
         $cab = $st->fetch();
         if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
 
-        _verificarBloqueo($cab, $payload);
+        _verificarBloqueo($cab, $payload, $terminalSerie);
 
         // Copiar a histórico
         $db->prepare(
@@ -146,13 +153,22 @@ function endpointMesaCerrar(array $payload, int $idPedido): void {
 }
 
 // ── Helper privado: verifica que el payload tiene el bloqueo ─
-function _verificarBloqueo(array $cab, array $payload): void {
+function _verificarBloqueo(array $cab, array $payload, string $terminalSerie): void {
     if ($payload['rol'] === 'admin') return; // admin siempre puede
     if (
-        $cab['id_usuario_bloqueo'] != $payload['sub'] ||
+        ($cab['terminal_serie_bloqueo'] ?? '') !== $terminalSerie ||
         !$cab['hora_bloqueo'] ||
         (strtotime($cab['hora_bloqueo']) + LOCK_TTL) <= time()
     ) {
         jsonError('No tienes el bloqueo de esta mesa o ha expirado', 409);
     }
+}
+
+function _terminalSerieDesdeBody(array $body): string {
+    $terminal = trim((string)($body['terminal_serie'] ?? ''));
+    if ($terminal === '') jsonError('Falta terminal_serie', 400);
+    if (strlen($terminal) > 120) {
+        $terminal = substr($terminal, 0, 120);
+    }
+    return $terminal;
 }
