@@ -46,6 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final api = context.read<ApiService>();
     try {
       final lista = await api.getUsuarios();
+      if (mounted) context.read<SesionProvider>().setUsuarios(lista);
       setState(() { _usuarios = lista; _loading = false; });
     } catch (e) {
       _intentosFallo++;
@@ -241,38 +242,41 @@ class _LoginScreenState extends State<LoginScreen> {
 
           const SizedBox(height: 10),
 
-          // ── Display contraseña (solo lectura) ────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppTheme.colorSuperficie,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _seleccionado != null
-                      ? AppTheme.colorPrimario
-                      : Colors.white24,
-                  width: 2,
-                ),
-              ),
-              child: Row(children: [
-                const Icon(Icons.lock, color: AppTheme.colorTextoGris, size: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _pass.isEmpty ? 'Contraseña' : '●' * _pass.length,
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: _pass.isEmpty
-                          ? AppTheme.colorTextoGris
-                          : AppTheme.colorTexto,
-                      letterSpacing: _pass.isEmpty ? 0 : 4,
-                    ),
+          // ── Display contraseña (solo lectura), ~30% más compacto y centrado ──
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.7,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+                decoration: BoxDecoration(
+                  color: AppTheme.colorSuperficie,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _seleccionado != null
+                        ? AppTheme.colorPrimario
+                        : Colors.white24,
+                    width: 2,
                   ),
                 ),
-              ]),
+                child: Row(children: [
+                  const Icon(Icons.lock,
+                      color: AppTheme.colorTextoGris, size: 13),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      _pass.isEmpty ? 'Contraseña' : '●' * _pass.length,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _pass.isEmpty
+                            ? AppTheme.colorTextoGris
+                            : AppTheme.colorTexto,
+                        letterSpacing: _pass.isEmpty ? 0 : 3,
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
             ),
           ),
 

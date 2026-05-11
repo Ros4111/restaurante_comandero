@@ -12,7 +12,7 @@ function endpointPedidoGet(array $payload, int $idPedido): void {
     if (!$cabRow) jsonError('Pedido no encontrado', 404);
 
     $det = $db->prepare(
-        'SELECT * FROM pedido_detalles WHERE id_pedido = ? ORDER BY orden, id_linea'
+        'SELECT * FROM pedido_detalles WHERE id_pedido = ? ORDER BY orden, orden'
     );
     $det->execute([$idPedido]);
     $detalles = $det->fetchAll();
@@ -74,7 +74,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 _registrarCambio($db, $payload['sub'], 'borrar', [
                     'id_pedido' => $idPedido,
                     'id_linea'  => $lid,
-                    'producto'  => $bdRow['nombre_producto'],
+                    'producto'  => $bdRow['nombre_producto_pantalla'],
                     'cantidad'  => $bdRow['cantidad'],
                 ]);
 
@@ -84,7 +84,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                     if ($idImp > 0) {
                         $user = $payload['name'];
                         $trabajosImpresion[$idImp][] = _cancelEscPos(
-                            $cab['id_mesa'], $bdRow['nombre_producto'],
+                            $cab['id_mesa'], $bdRow['nombre_producto_pantalla'],
                             $bdRow['cantidad'], $user
                         );
                     }
@@ -134,7 +134,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 if ($idImp > 0) {
                     $trabajosImpresion[$idImp][] = _mesaCambioEscPos(
                         $cab['id_mesa'], $mesaDest,
-                        $bdRow['nombre_producto'], $bdRow['cantidad'],
+                        $bdRow['nombre_producto_pantalla'], $bdRow['cantidad'],
                         $payload['name']
                     );
                 }
@@ -145,7 +145,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             if ($changed) {
                 $cambios['id_pedido'] = $idPedido;
                 $cambios['id_linea']  = $lid;
-                $cambios['producto']  = $bdRow['nombre_producto'];
+                $cambios['producto']  = $bdRow['nombre_producto_pantalla'];
                 _registrarCambio($db, $payload['sub'], 'modificar', $cambios);
 
                 $db->prepare(
@@ -160,7 +160,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         $stIns = $db->prepare(
             'INSERT INTO pedido_detalles
              (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto, opciones_elegidas, texto_imprimir, orden, impreso)
+              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden, impreso)
              VALUES (?,?,?,?,?,?,?,?,0)'
         );
         foreach ($nuevas as $n) {
@@ -173,9 +173,9 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 (int)$n['id_producto'],
                 max(1, (int)($n['cantidad'] ?? 1)),
                 trim($n['comentario'] ?? ''),
-                $n['nombre_producto'],
+                $n['nombre_producto_pantalla'],
                 $opcionesJson,
-                $n['texto_imprimir'] ?? $n['nombre_producto'],
+                $n['texto_imprimir_cocina'] ?? $n['nombre_producto_pantalla'],
                 $maxOrden,
             ]);
             $newId = (int)$db->lastInsertId();
@@ -184,7 +184,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             _registrarCambio($db, $payload['sub'], 'añadir', [
                 'id_pedido'  => $idPedido,
                 'id_linea'   => $newId,
-                'producto'   => $n['nombre_producto'],
+                'producto'   => $n['nombre_producto_pantalla'],
                 'cantidad'   => $n['cantidad'],
             ]);
 
@@ -334,7 +334,7 @@ function _nuevaLineaEscPos(int $mesa, array $linea, string $camarero): string {
     $t .= str_repeat('-', 32) . "\n";
     $t .= _escposLeft();
     $cant   = (int)($linea['cantidad'] ?? 1);
-    $nombre = $linea['texto_imprimir'] ?? $linea['nombre_producto'];
+    $nombre = $linea['texto_imprimir_cocina'] ?? $linea['nombre_producto_pantalla'];
     $t .= _escposBold(true) . " $cant x $nombre\n" . _escposBold(false);
     if (!empty($linea['opciones_elegidas'])) {
         foreach ((array)$linea['opciones_elegidas'] as $grupo => $opcion) {

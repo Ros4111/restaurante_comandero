@@ -70,9 +70,9 @@ Categoria_producto
 ________________________________________
 Productos
 •	Id_producto  (clave primaria)
-•	Nombre_producto 
+•	nombre_producto_pantalla 
 •	Id_categoria  (un product solo puede estar en una categoría)
-•	Texto_imprimir 
+•	texto_imprimir_cocina
 •	ID_impresora (0 si no imprime) 
 •	Disponible_si_no 
 •	Orden  (indica el orden de inserción)
@@ -108,9 +108,9 @@ Pedido_detalles
 •	Id_producto 
 •	Cantidad 
 •	Comentario 
-•	Nombre_producto 
+•	nombre_producto_pantalla 
 •	Opciones_elegidas (json con todas las opciones del producto seleccionadas)
-•	Texto_imprimir 
+•	texto_imprimir_cocina
 •	Orden (indica el orden de inserción)
 •	Impreso_si_no 
 ________________________________________

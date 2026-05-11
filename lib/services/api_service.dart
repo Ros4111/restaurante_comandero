@@ -20,11 +20,18 @@ class ApiService extends ChangeNotifier {
   String _baseUrl = '';
   String? _token;
   bool _serverReachable = true;
+  bool _tokenExpirado = false;
   String? _terminalSerieCache;
 
   String get baseUrl => _baseUrl;
   bool get serverReachable => _serverReachable;
   bool get hasToken => _token != null;
+  bool get tokenExpirado => _tokenExpirado;
+
+  void resetTokenExpirado() {
+    _tokenExpirado = false;
+    notifyListeners();
+  }
 
   void setBaseUrl(String url) {
     _baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
@@ -121,6 +128,11 @@ class ApiService extends ChangeNotifier {
         if (data['ok'] == true) {
           return data['data'] as Map<String, dynamic>? ?? {};
         }
+        if (_token != null &&
+            (res.statusCode == 401 || res.statusCode == 403)) {
+          _tokenExpirado = true;
+          notifyListeners();
+        }
         throw ApiException(data['error'] ?? 'Error del servidor',
             statusCode: res.statusCode);
       } on TimeoutException {
@@ -151,7 +163,13 @@ class ApiService extends ChangeNotifier {
         if (data['ok'] == true) {
           return data['data'] as List<dynamic>;
         }
-        throw ApiException(data['error'] ?? 'Error');
+        if (_token != null &&
+            (res.statusCode == 401 || res.statusCode == 403)) {
+          _tokenExpirado = true;
+          notifyListeners();
+        }
+        throw ApiException(data['error'] ?? 'Error',
+            statusCode: res.statusCode);
       } on TimeoutException {
         _setReachable(false);
         if (attempt == 2) rethrow;
@@ -347,7 +365,7 @@ class ApiService extends ChangeNotifier {
       {required int idOrigen, String? nombreProducto}) async {
     final body = <String, dynamic>{'id_producto_origen': idOrigen};
     if (nombreProducto != null && nombreProducto.trim().isNotEmpty) {
-      body['nombre_producto'] = nombreProducto.trim();
+      body['nombre_producto_pantalla'] = nombreProducto.trim();
     }
     final data = await _request('POST', '/productos/copiar', body: body);
     return int.parse(data['id_producto'].toString());

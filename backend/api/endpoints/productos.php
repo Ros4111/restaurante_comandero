@@ -55,7 +55,7 @@ function endpointProductosListar(array $payload): void {
 
     if ($q === '') {
         $st = $db->query(
-            'SELECT id_producto, nombre_producto, id_categoria, texto_imprimir,
+            'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
                     id_impresora, disponible, orden
                FROM productos
            ORDER BY orden, id_producto
@@ -65,11 +65,11 @@ function endpointProductosListar(array $payload): void {
     } else {
         $like = '%' . $q . '%';
         $st = $db->prepare(
-            'SELECT id_producto, nombre_producto, id_categoria, texto_imprimir,
+            'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
                     id_impresora, disponible, orden
                FROM productos
-              WHERE nombre_producto LIKE ? OR CAST(id_producto AS CHAR) LIKE ?
-           ORDER BY nombre_producto
+              WHERE nombre_producto_pantalla LIKE ? OR CAST(id_producto AS CHAR) LIKE ?
+           ORDER BY nombre_producto_pantalla
               LIMIT 100'
         );
         $st->execute([$like, $like . '%']);
@@ -83,8 +83,8 @@ function endpointProductoGet(array $payload, int $id): void {
     if ($id <= 0) jsonError('Id inválido', 400);
     $db = getDB();
     $st = $db->prepare(
-        'SELECT id_producto, nombre_producto, id_categoria, texto_imprimir,
-                id_impresora, disponible, orden
+        'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
+                texto_imprimir_cliente, id_impresora, disponible, orden
            FROM productos WHERE id_producto = ?'
     );
     $st->execute([$id]);
@@ -106,11 +106,12 @@ function endpointProductoGet(array $payload, int $id): void {
 function endpointProductoCrear(array $payload): void {
     requireRole($payload, ['admin', 'supervisor']);
     $body = getBody();
-    $nombre = trim((string)($body['nombre_producto'] ?? ''));
+    $nombre = trim((string)($body['nombre_producto_pantalla'] ?? ''));
     $idCat = (int)($body['id_categoria'] ?? 0);
     if ($nombre === '' || $idCat <= 0) jsonError('Nombre e id_categoria son obligatorios', 400);
 
-    $texto = trim((string)($body['texto_imprimir'] ?? $nombre));
+    $texto = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
+    $textoCliente = trim((string)($body['texto_imprimir_cliente'] ?? ''));
     $idImp = (int)($body['id_impresora'] ?? 0);
     $disp = (int)!empty($body['disponible']);
     $orden = (int)($body['orden'] ?? 0);
@@ -123,12 +124,13 @@ function endpointProductoCrear(array $payload): void {
     }
 
     $st = $db->prepare(
-        'INSERT INTO productos (nombre_producto, id_categoria, texto_imprimir, id_impresora, disponible, orden)
-         VALUES (?,?,?,?,?,?)'
+        'INSERT INTO productos (nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
+                texto_imprimir_cliente, id_impresora, disponible, orden)
+         VALUES (?,?,?,?,?,?,?)'
     );
     $db->beginTransaction();
     try {
-        $st->execute([$nombre, $idCat, $texto, $idImp, $disp, $orden]);
+        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden]);
         $id = (int)$db->lastInsertId();
         if (array_key_exists('opciones', $body)) {
             productoGuardarOpciones($db, $id, $body['opciones']);
@@ -145,11 +147,12 @@ function endpointProductoActualizar(array $payload, int $id): void {
     requireRole($payload, ['admin', 'supervisor']);
     if ($id <= 0) jsonError('Id inválido', 400);
     $body = getBody();
-    $nombre = trim((string)($body['nombre_producto'] ?? ''));
+    $nombre = trim((string)($body['nombre_producto_pantalla'] ?? ''));
     $idCat = (int)($body['id_categoria'] ?? 0);
     if ($nombre === '' || $idCat <= 0) jsonError('Nombre e id_categoria son obligatorios', 400);
 
-    $texto = trim((string)($body['texto_imprimir'] ?? $nombre));
+    $texto = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
+    $textoCliente = trim((string)($body['texto_imprimir_cliente'] ?? ''));
     $idImp = (int)($body['id_impresora'] ?? 0);
     $disp = (int)!empty($body['disponible']);
     $orden = (int)($body['orden'] ?? 0);
@@ -162,13 +165,13 @@ function endpointProductoActualizar(array $payload, int $id): void {
     }
 
     $st = $db->prepare(
-        'UPDATE productos SET nombre_producto = ?, id_categoria = ?, texto_imprimir = ?,
-                id_impresora = ?, disponible = ?, orden = ?
+        'UPDATE productos SET nombre_producto_pantalla = ?, id_categoria = ?, texto_imprimir_cocina = ?,
+                texto_imprimir_cliente = ?, id_impresora = ?, disponible = ?, orden = ?
           WHERE id_producto = ?'
     );
     $db->beginTransaction();
     try {
-        $st->execute([$nombre, $idCat, $texto, $idImp, $disp, $orden, $id]);
+        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden, $id]);
         if ($st->rowCount() === 0) {
             $chk = $db->prepare('SELECT 1 FROM productos WHERE id_producto = ?');
             $chk->execute([$id]);
@@ -218,16 +221,17 @@ function endpointProductoCopiar(array $payload): void {
 
     $db = getDB();
     $st = $db->prepare(
-        'SELECT nombre_producto, id_categoria, texto_imprimir, id_impresora, disponible, orden
+        'SELECT nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
+                texto_imprimir_cliente, id_impresora, disponible, orden
            FROM productos WHERE id_producto = ?'
     );
     $st->execute([$idO]);
     $orig = $st->fetch();
     if (!$orig) jsonError('Producto origen no encontrado', 404);
 
-    $nombreNuevo = trim((string)($body['nombre_producto'] ?? ''));
+    $nombreNuevo = trim((string)($body['nombre_producto_pantalla'] ?? ''));
     if ($nombreNuevo === '') {
-        $nombreNuevo = $orig['nombre_producto'] . ' (copia)';
+        $nombreNuevo = $orig['nombre_producto_pantalla'] . ' (copia)';
     }
 
     $mx = $db->prepare('SELECT COALESCE(MAX(orden), 0) + 1 FROM productos WHERE id_categoria = ?');
@@ -237,13 +241,15 @@ function endpointProductoCopiar(array $payload): void {
     $db->beginTransaction();
     try {
         $ins = $db->prepare(
-            'INSERT INTO productos (nombre_producto, id_categoria, texto_imprimir, id_impresora, disponible, orden)
-             VALUES (?,?,?,?,?,?)'
+            'INSERT INTO productos (nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
+                     texto_imprimir_cliente, id_impresora, disponible, orden)
+             VALUES (?,?,?,?,?,?,?)'
         );
         $ins->execute([
             $nombreNuevo,
             (int)$orig['id_categoria'],
-            $orig['texto_imprimir'],
+            $orig['texto_imprimir_cocina'],
+            $orig['texto_imprimir_cliente'] ?? '',
             (int)$orig['id_impresora'],
             (int)$orig['disponible'],
             $orden,

@@ -1,7 +1,37 @@
 // lib/widgets/lineas_panel.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 import '../models/models.dart';
+import '../services/catalogo_provider.dart';
 import '../utils/theme.dart';
+
+/// Misma regla que [ProductoOpcionesDialog]: predeterminada del catálogo o, si no hay, la primera opción del grupo.
+List<String> _opcionesAMostrarEnPanel(
+    LineaPedido linea, CatalogoProvider catalogo) {
+  final out = <String>[];
+  for (final entry in linea.opcionesElegidas.entries) {
+    final idGrupo = entry.key;
+    final elegida = entry.value;
+    final opts = catalogo.opcionesDeGrupo(linea.idProducto, idGrupo);
+    if (opts.isEmpty) {
+      if (!elegida.predeterminado) out.add(elegida.nombre);
+      continue;
+    }
+    OpcionProducto? predCatalogo;
+    for (final o in opts) {
+      if (o.predeterminado) {
+        predCatalogo = o;
+        break;
+      }
+    }
+    predCatalogo ??= opts.first;
+    if (predCatalogo.nombreOpcion != elegida.nombre) {
+      out.add(elegida.nombre);
+    }
+  }
+  return out;
+}
 
 class LineasPanel extends StatefulWidget {
   final List<LineaPedido> lineas;
@@ -37,7 +67,6 @@ class _LineasPanelState extends State<LineasPanel> {
     final seAnadioLinea = currentCount > _lastLineCount;
     _lastLineCount = currentCount;
     if (!seAnadioLinea) return;
-    
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
@@ -57,12 +86,14 @@ class _LineasPanelState extends State<LineasPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final catalogo = context.watch<CatalogoProvider>();
     final hayLineas = widget.lineas.isNotEmpty;
 
     Widget body;
     if (!hayLineas) {
       body = const Center(
-        child: Text('Sin productos', style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 18)),
+        child: Text('Sin productos',
+            style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 18)),
       );
     } else {
       body = ListView.builder(
@@ -73,9 +104,11 @@ class _LineasPanelState extends State<LineasPanel> {
           final l = widget.lineas[i];
           return _LineaTile(
             linea: l,
+            catalogo: catalogo,
             soloLectura: widget.soloLectura,
             onLongPress: () => widget.onLineaTap(l),
-            backgroundColor: i.isEven ? AppTheme.colorTarjeta : AppTheme.colorSuperficie,
+            backgroundColor:
+                i.isEven ? AppTheme.colorTarjeta : AppTheme.colorSuperficie,
           );
         },
       );
@@ -102,12 +135,14 @@ class _LineasPanelState extends State<LineasPanel> {
 
 class _LineaTile extends StatelessWidget {
   final LineaPedido linea;
+  final CatalogoProvider catalogo;
   final bool soloLectura;
   final VoidCallback onLongPress;
   final Color backgroundColor;
 
   const _LineaTile({
     required this.linea,
+    required this.catalogo,
     required this.soloLectura,
     required this.onLongPress,
     required this.backgroundColor,
@@ -115,6 +150,7 @@ class _LineaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final opcionesPanel = _opcionesAMostrarEnPanel(linea, catalogo);
     final esNuevo = linea.esNuevo;
     final color = linea.editada
         ? Colors.green
@@ -125,7 +161,8 @@ class _LineaTile extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: backgroundColor,
-          border: const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
+          border:
+              const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Column(
@@ -138,24 +175,32 @@ class _LineaTile extends StatelessWidget {
                     linea.nombreProducto,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600),
                   ),
                 ),
                 if (linea.cantidad > 1) ...[
                   const SizedBox(width: 8),
                   Text(
                     '${linea.cantidad}x',
-                    style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16),
                   ),
                 ],
               ],
             ),
-            if (linea.opcionesNoPredeterminadas.isNotEmpty) ...[
+            if (opcionesPanel.isNotEmpty) ...[
               const SizedBox(height: 4),
-              ...linea.opcionesNoPredeterminadas.map(
+              ...opcionesPanel.map(
                 (op) => Padding(
                   padding: const EdgeInsets.only(left: 8, top: 2),
-                  child: Text('▸ $op', style: const TextStyle(color: AppTheme.colorTextoGris, fontSize: 13)),
+                  child: Text('▸ $op',
+                      style: const TextStyle(
+                          color: AppTheme.colorTextoGris, fontSize: 13)),
                 ),
               ),
             ],

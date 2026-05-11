@@ -129,7 +129,7 @@ class SunmiService {
         final nuevasDeImpresora = grouped[idImp] ?? <LineaPedido>[];
         for (final l in nuevasDeImpresora) {
           final lineaTexto =
-              _escPosLineaProductoRed(l.cantidad, l.textoImprimir);
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina);
 
           _printEscPosText(
             printer,
@@ -162,7 +162,7 @@ class SunmiService {
           for (final l in lineasEliminadas) {
             _printEscPosText(
               printer,
-              _escPosLineaProductoRed(l.cantidad, l.textoImprimir,
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
                   sangria: true),
             );
           }
@@ -178,7 +178,7 @@ class SunmiService {
           for (final l in lineasMovidas) {
             _printEscPosText(
               printer,
-              _escPosLineaProductoRed(l.cantidad, l.textoImprimir,
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
                   sangria: true),
             );
             _printEscPosText(
@@ -388,7 +388,7 @@ class SunmiService {
     if (lineasNuevas.isNotEmpty) {
       for (final l in lineasNuevas) {
         await SunmiPrinter.printText(
-          '${l.cantidad}x${l.textoImprimir}',
+          '${l.cantidad}x${l.textoImprimirBarraCocina}',
           style: SunmiTextStyle(bold: true, fontSize: 35, reverse: false),
         );
         for (final opcion in l.opcionesNoPredeterminadas) {
@@ -417,7 +417,7 @@ class SunmiService {
       );
       for (final l in lineasEliminadas) {
         await SunmiPrinter.printText(
-          ' ${l.cantidad}x${l.textoImprimir}',
+          ' ${l.cantidad}x${l.textoImprimirBarraCocina}',
           style: SunmiTextStyle(reverse: false),
         );
       }
@@ -434,7 +434,7 @@ class SunmiService {
       );
       for (final l in lineasMovidas) {
         await SunmiPrinter.printText(
-          ' ${l.cantidad}x${l.textoImprimir}',
+          ' ${l.cantidad}x${l.textoImprimirBarraCocina}',
           style: SunmiTextStyle(reverse: false),
         );
         await SunmiPrinter.printText(

@@ -54,6 +54,11 @@ if (preg_match('#^/impresoras/config/(\d+)/eliminar$#', $uri, $m) && $method ===
     endpointImpresoraEliminar((int)$m[1]);
 }
 
+if ($uri === '/check-opciones' && $method === 'GET') {
+    require __DIR__ . '/endpoints/check_opciones.php';
+    endpointCheckOpciones();
+}
+
 // ── Rutas protegidas ─────────────────────────────────────────
 $payload = requireAuth();
 

@@ -181,7 +181,7 @@ class _ProdTile extends StatelessWidget {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
         child: Text(
-          p.nombre,
+          p.nombreProductoPantalla,
           style: const TextStyle(
               color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
           overflow: TextOverflow.ellipsis,

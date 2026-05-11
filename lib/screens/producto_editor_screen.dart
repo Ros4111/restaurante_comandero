@@ -51,7 +51,8 @@ class ProductoEditorScreen extends StatefulWidget {
 
 class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   final _nombreCtrl = TextEditingController();
-  final _textoImprimirCtrl = TextEditingController();
+  final _textoImprimirBarraCocinaCtrl = TextEditingController();
+  final _textoImprimirClienteCtrl = TextEditingController();
   final _ordenCtrl = TextEditingController();
   final _buscarCtrl = TextEditingController();
 
@@ -106,7 +107,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     _debounceBuscar?.cancel();
     _disposeFilasOpciones();
     _nombreCtrl.dispose();
-    _textoImprimirCtrl.dispose();
+    _textoImprimirBarraCocinaCtrl.dispose();
+    _textoImprimirClienteCtrl.dispose();
     _ordenCtrl.dispose();
     _buscarCtrl.dispose();
     super.dispose();
@@ -117,7 +119,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     setState(() {
       _id = null;
       _nombreCtrl.clear();
-      _textoImprimirCtrl.clear();
+      _textoImprimirBarraCocinaCtrl.clear();
+      _textoImprimirClienteCtrl.clear();
       _ordenCtrl.clear();
       _disponible = true;
       _error = null;
@@ -193,8 +196,11 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       _cargarOpcionesDesdeApi(j['opciones'], cat);
       setState(() {
         _id = id;
-        _nombreCtrl.text = j['nombre_producto']?.toString() ?? '';
-        _textoImprimirCtrl.text = j['texto_imprimir']?.toString() ?? '';
+        _nombreCtrl.text = j['nombre_producto_pantalla']?.toString() ?? '';
+        _textoImprimirBarraCocinaCtrl.text =
+            j['texto_imprimir_cocina']?.toString() ?? '';
+        _textoImprimirClienteCtrl.text =
+            j['texto_imprimir_cliente']?.toString() ?? '';
         _ordenCtrl.text = (j['orden'] ?? '').toString();
         _idCategoria = int.tryParse(j['id_categoria'].toString());
         _idImpresora = int.tryParse((j['id_impresora'] ?? 0).toString());
@@ -240,7 +246,9 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     setState(() {
       if (value) {
         for (final o in _filasOpciones) {
-          o.predeterminado = o.idGrupo == fila.idGrupo && identical(o, fila);
+          if (o.idGrupo == fila.idGrupo) {
+            o.predeterminado = identical(o, fila);
+          }
         }
       } else {
         fila.predeterminado = false;
@@ -262,11 +270,12 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         .where((m) => (m['nombre_opcion'] as String).isNotEmpty)
         .toList();
     return {
-      'nombre_producto': _nombreCtrl.text.trim(),
+      'nombre_producto_pantalla': _nombreCtrl.text.trim(),
       'id_categoria': _idCategoria ?? 0,
-      'texto_imprimir': _textoImprimirCtrl.text.trim().isEmpty
+      'texto_imprimir_cocina': _textoImprimirBarraCocinaCtrl.text.trim().isEmpty
           ? _nombreCtrl.text.trim()
-          : _textoImprimirCtrl.text.trim(),
+          : _textoImprimirBarraCocinaCtrl.text.trim(),
+      'texto_imprimir_cliente': _textoImprimirClienteCtrl.text.trim(),
       'id_impresora': _idImpresora ?? 0,
       'disponible': _disponible,
       if (orden != null && orden > 0) 'orden': orden,
@@ -625,7 +634,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
             child: TextField(
               controller: _buscarCtrl,
               decoration: const InputDecoration(
-                labelText: 'Buscar producto (nombre o id)',
+                labelText: 'Buscar producto',
                 prefixIcon: Icon(Icons.search),
                 filled: true,
                 fillColor: AppTheme.colorSuperficie,
@@ -643,21 +652,32 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (ctx, i) {
                       final r = _listaBusqueda[i];
-                      final idP =
-                          int.tryParse(r['id_producto'].toString()) ?? 0;
-                      final nom = r['nombre_producto']?.toString() ?? '';
+                      final catalogo = context.read<CatalogoProvider>();
+                      final nom =
+                          r['nombre_producto_pantalla']?.toString() ?? '';
+                      final nombreCat = catalogo.categorias
+                              .where((c) => c.id == r['id_categoria'])
+                              .firstOrNull
+                              ?.nombre ??
+                          'cat ${r['id_categoria']}';
                       return ListTile(
                         dense: true,
-                        title: Text(nom,
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text('id $idP · cat ${r['id_categoria']}'),
-                        onTap: () => _cargarProducto(idP),
+                        title: Text(
+                          '$nom  ·  $nombreCat',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: () => _cargarProducto(
+                            int.tryParse(r['id_producto'].toString()) ?? 0),
                         trailing: IconButton(
                           tooltip: 'Copiar como nuevo',
                           icon: const Icon(Icons.copy_outlined),
                           onPressed: _guardando
                               ? null
-                              : () => _copiarProducto(idP, '$nom (copia)'),
+                              : () => _copiarProducto(
+                                  int.tryParse(r['id_producto'].toString()) ??
+                                      0,
+                                  '$nom (copia)'),
                         ),
                       );
                     },
@@ -706,10 +726,21 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: _textoImprimirCtrl,
+                  controller: _textoImprimirBarraCocinaCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Texto ticket / cocina',
+                    labelText: 'Texto Impimir en barra / cocina',
                     hintText: 'Si vacío, se usa el nombre',
+                    filled: true,
+                    fillColor: AppTheme.colorSuperficie,
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _textoImprimirClienteCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Texto Ticket para Cliente',
+                    hintText: 'Si vacío, no se imprime en el ticket cliente',
                     filled: true,
                     fillColor: AppTheme.colorSuperficie,
                   ),

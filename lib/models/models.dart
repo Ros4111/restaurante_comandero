@@ -71,7 +71,7 @@ class OpcionProducto {
   final int id;
   final int idProducto;
   final int idGrupo;
-  final String nombre;
+  final String nombreOpcion;
   final bool predeterminado;
   final bool disponible;
   final int orden;
@@ -80,7 +80,7 @@ class OpcionProducto {
       {required this.id,
       required this.idProducto,
       required this.idGrupo,
-      required this.nombre,
+      required this.nombreOpcion,
       required this.predeterminado,
       required this.disponible,
       required this.orden});
@@ -89,7 +89,7 @@ class OpcionProducto {
         id: int.parse(j['id_opcion'].toString()),
         idProducto: int.parse(j['id_producto'].toString()),
         idGrupo: int.parse(j['id_grupo_opciones'].toString()),
-        nombre: j['nombre_opcion'] ?? '',
+        nombreOpcion: j['nombre_opcion'] ?? '',
         predeterminado: j['predeterminado'].toString() == '1',
         disponible: j['disponible'].toString() == '1',
         orden: int.parse((j['orden'] ?? 0).toString()),
@@ -98,27 +98,30 @@ class OpcionProducto {
 
 class Producto {
   final int id;
-  final String nombre;
+  final String nombreProductoPantalla;
   final int idCategoria;
-  final String textoImprimir;
+  final String textoImprimirBarraCocina;
+  final String textoImprimirCliente;
   final int idImpresora;
   final bool disponible;
   final int orden;
 
   Producto(
       {required this.id,
-      required this.nombre,
+      required this.nombreProductoPantalla,
       required this.idCategoria,
-      required this.textoImprimir,
+      required this.textoImprimirBarraCocina,
+      this.textoImprimirCliente = '',
       required this.idImpresora,
       required this.disponible,
       required this.orden});
 
   factory Producto.fromJson(Map<String, dynamic> j) => Producto(
         id: int.parse(j['id_producto'].toString()),
-        nombre: j['nombre_producto'] ?? '',
+        nombreProductoPantalla: j['nombre_producto_pantalla'] ?? '',
         idCategoria: int.parse(j['id_categoria'].toString()),
-        textoImprimir: j['texto_imprimir'] ?? '',
+        textoImprimirBarraCocina: j['texto_imprimir_cocina'] ?? '',
+        textoImprimirCliente: j['texto_imprimir_cliente']?.toString() ?? '',
         idImpresora: int.parse((j['id_impresora'] ?? 0).toString()),
         disponible: j['disponible'].toString() == '1',
         orden: int.parse((j['orden'] ?? 0).toString()),
@@ -145,9 +148,10 @@ class Impresora {
         nombre: j['nombre']?.toString() ?? '',
         ip: j['ip']?.toString(),
         puerto: int.parse((j['puerto'] ?? 0).toString()),
-        tablaCodigos: (j['tabla_codigos']?.toString().trim().isNotEmpty ?? false)
-            ? j['tabla_codigos'].toString().trim().toUpperCase()
-            : 'CP1252',
+        tablaCodigos:
+            (j['tabla_codigos']?.toString().trim().isNotEmpty ?? false)
+                ? j['tabla_codigos'].toString().trim().toUpperCase()
+                : 'CP1252',
       );
 }
 
@@ -158,7 +162,7 @@ class LineaPedido {
   String comentario;
   final String nombreProducto;
   Map<int, OpcionElegida> opcionesElegidas; // idGrupo -> opción elegida
-  final String textoImprimir;
+  final String textoImprimirBarraCocina;
   int orden;
   bool impreso;
   int? moverAMesa; // si != null, mover esta línea a otra mesa
@@ -171,7 +175,7 @@ class LineaPedido {
     this.comentario = '',
     required this.nombreProducto,
     required this.opcionesElegidas,
-    required this.textoImprimir,
+    required this.textoImprimirBarraCocina,
     required this.orden,
     this.impreso = false,
     this.moverAMesa,
@@ -208,9 +212,9 @@ class LineaPedido {
       idProducto: int.parse(j['id_producto'].toString()),
       cantidad: int.parse(j['cantidad'].toString()),
       comentario: j['comentario'] ?? '',
-      nombreProducto: j['nombre_producto'] ?? '',
+      nombreProducto: j['nombre_producto_pantalla'] ?? '',
       opcionesElegidas: opciones,
-      textoImprimir: j['texto_imprimir'] ?? '',
+      textoImprimirBarraCocina: j['texto_imprimir_cocina'] ?? '',
       orden: int.parse((j['orden'] ?? 0).toString()),
       impreso: j['impreso'].toString() == '1',
       editada: false,
@@ -222,10 +226,10 @@ class LineaPedido {
       'id_producto': idProducto,
       'cantidad': cantidad,
       'comentario': comentario,
-      'nombre_producto': nombreProducto,
+      'nombre_producto_pantalla': nombreProducto,
       'opciones_elegidas':
           opcionesElegidas.map((k, v) => MapEntry(k.toString(), v.toJson())),
-      'texto_imprimir': textoImprimir,
+      'texto_imprimir_cocina': textoImprimirBarraCocina,
     };
     if (idLinea != null) m['id_linea'] = idLinea;
     if (moverAMesa != null) m['mover_a_mesa'] = moverAMesa;
@@ -247,7 +251,7 @@ class LineaPedido {
         nombreProducto: nombreProducto,
         opcionesElegidas: Map<int, OpcionElegida>.from(
             opcionesElegidas ?? this.opcionesElegidas),
-        textoImprimir: textoImprimir,
+        textoImprimirBarraCocina: textoImprimirBarraCocina,
         orden: orden,
         impreso: impreso,
         moverAMesa: moverAMesa ?? this.moverAMesa,
@@ -310,7 +314,7 @@ class MesaResumen {
         idUsuarioBloqueo: j['id_usuario_bloqueo'] != null
             ? int.parse(j['id_usuario_bloqueo'].toString())
             : null,
-        nombreUsuarioBloqueo: j['nombre_usuario_bloqueo'],
+        nombreUsuarioBloqueo: null, // Se asignará después de mapear usuarios
         horaBloqueo: j['hora_bloqueo'],
         terminalSerieBloqueo: j['terminal_serie_bloqueo']?.toString(),
         nombreCliente: j['nombre_cliente']?.toString(),

@@ -67,7 +67,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
           opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
       if (def != null) {
         _seleccion[g.id] = OpcionElegida(
-          nombre: def.nombre,
+          nombre: def.nombreOpcion,
           predeterminado: def.predeterminado,
         );
       }
@@ -101,7 +101,8 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
         width: widthPantalla,
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.only(left: 8, right: 6, top: 6, bottom: 2),
+            padding:
+                const EdgeInsets.only(left: 8, right: 6, top: 6, bottom: 2),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -109,7 +110,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                   children: [
                     Expanded(
                       child: Text(
-                        widget.producto.nombre,
+                        widget.producto.nombreProductoPantalla,
                         style: const TextStyle(
                             fontSize: 20, fontWeight: FontWeight.bold),
                         overflow: TextOverflow.ellipsis,
@@ -135,26 +136,27 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                  children: [
-                    const Text('Cantidad',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.remove_circle_outline, size: 32),
-                      onPressed: _cantidad > 1
-                          ? () => setState(() => _cantidad--)
-                          : null,
-                    ),
-                    Text('$_cantidad',
-                        style: const TextStyle(
-                            fontSize: 24, fontWeight: FontWeight.bold)),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline, size: 32),
-                      onPressed: () => setState(() => _cantidad++),
-                    ),
-                  ]),
+                        Row(children: [
+                          const Text('Cantidad',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16)),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline,
+                                size: 32),
+                            onPressed: _cantidad > 1
+                                ? () => setState(() => _cantidad--)
+                                : null,
+                          ),
+                          Text('$_cantidad',
+                              style: const TextStyle(
+                                  fontSize: 24, fontWeight: FontWeight.bold)),
+                          IconButton(
+                            icon:
+                                const Icon(Icons.add_circle_outline, size: 32),
+                            onPressed: () => setState(() => _cantidad++),
+                          ),
+                        ]),
 
                         // Grupos de opciones
                         ...widget.grupos.map((g) {
@@ -166,7 +168,8 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                               const Divider(height: 8),
                               Text(g.nombre,
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.bold, fontSize: 15)),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15)),
                               Theme(
                                 data: Theme.of(context).copyWith(
                                   listTileTheme: const ListTileThemeData(
@@ -180,33 +183,39 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                                   groupValue: _seleccion[g.id]?.nombre,
                                   onChanged: (v) {
                                     if (v != null) {
-                                      final opcion =
-                                          opts.firstWhere((o) => o.nombre == v);
+                                      final opcion = opts.firstWhere(
+                                          (o) => o.nombreOpcion == v);
                                       setState(() {
                                         _seleccion[g.id] = OpcionElegida(
-                                          nombre: opcion.nombre,
+                                          nombre: opcion.nombreOpcion,
                                           predeterminado: opcion.predeterminado,
                                         );
                                       });
                                     }
                                   },
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: opts
                                         .map((o) => RadioListTile<String>(
-                                              value: o.nombre,
-                                              title: Text(o.nombre,
-                                                  style: const TextStyle(fontSize: 16)),
-                                              activeColor: AppTheme.colorPrimario,
+                                              value: o.nombreOpcion,
+                                              title: Text(o.nombreOpcion,
+                                                  style: const TextStyle(
+                                                      fontSize: 16)),
+                                              activeColor:
+                                                  AppTheme.colorPrimario,
                                               dense: true,
-                                              visualDensity: const VisualDensity(
+                                              visualDensity:
+                                                  const VisualDensity(
                                                 horizontal: -4,
                                                 vertical: -4,
                                               ),
                                               contentPadding: EdgeInsets.zero,
                                               radioScaleFactor: 1.0,
-                                              radioInnerRadius: WidgetStateProperty
-                                                  .resolveWith<double>((states) {
+                                              radioInnerRadius:
+                                                  WidgetStateProperty
+                                                      .resolveWith<double>(
+                                                          (states) {
                                                 if (states.contains(
                                                     WidgetState.selected)) {
                                                   return 3.0;

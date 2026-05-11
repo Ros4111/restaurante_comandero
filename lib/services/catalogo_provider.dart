@@ -12,14 +12,15 @@ class CatalogoProvider extends ChangeNotifier {
   bool get loaded => categorias.isNotEmpty;
 
   void cargar(Map<String, dynamic> data) {
-    categorias = (data['categorias'] as List)
-        .map((j) => Categoria.fromJson(j)).toList();
-    productos = (data['productos'] as List)
-        .map((j) => Producto.fromJson(j)).toList();
-    grupos = (data['grupos'] as List)
-        .map((j) => GrupoOpciones.fromJson(j)).toList();
+    categorias =
+        (data['categorias'] as List).map((j) => Categoria.fromJson(j)).toList();
+    productos =
+        (data['productos'] as List).map((j) => Producto.fromJson(j)).toList();
+    grupos =
+        (data['grupos'] as List).map((j) => GrupoOpciones.fromJson(j)).toList();
     opciones = (data['opciones'] as List)
-        .map((j) => OpcionProducto.fromJson(j)).toList();
+        .map((j) => OpcionProducto.fromJson(j))
+        .toList();
     final impRaw = data['impresoras'];
     impresoras = impRaw is List
         ? impRaw
@@ -33,9 +34,10 @@ class CatalogoProvider extends ChangeNotifier {
       categorias.where((c) => c.idPadre == idPadre && c.disponible).toList()
         ..sort((a, b) => a.orden.compareTo(b.orden));
 
-  List<Producto> productosDeCategoria(int idCategoria) =>
-      productos.where((p) => p.idCategoria == idCategoria && p.disponible).toList()
-        ..sort((a, b) => a.orden.compareTo(b.orden));
+  List<Producto> productosDeCategoria(int idCategoria) => productos
+      .where((p) => p.idCategoria == idCategoria && p.disponible)
+      .toList()
+    ..sort((a, b) => a.orden.compareTo(b.orden));
 
   List<GrupoOpciones> gruposDeProducto(int idProducto) {
     final idsGrupo = opciones
@@ -46,14 +48,15 @@ class CatalogoProvider extends ChangeNotifier {
       ..sort((a, b) => a.orden.compareTo(b.orden));
   }
 
-  List<OpcionProducto> opcionesDeGrupo(int idProducto, int idGrupo) =>
-      opciones.where((o) =>
-          o.idProducto == idProducto && o.idGrupo == idGrupo && o.disponible).toList()
-        ..sort((a, b) => a.orden.compareTo(b.orden));
+  List<OpcionProducto> opcionesDeGrupo(int idProducto, int idGrupo) => opciones
+      .where((o) =>
+          o.idProducto == idProducto && o.idGrupo == idGrupo && o.disponible)
+      .toList()
+    ..sort((a, b) => a.orden.compareTo(b.orden));
 
   OpcionProducto? opcionPorNombre(int idProducto, int idGrupo, String nombre) {
     for (final o in opcionesDeGrupo(idProducto, idGrupo)) {
-      if (o.nombre == nombre) return o;
+      if (o.nombreOpcion == nombre) return o;
     }
     return null;
   }
@@ -63,12 +66,28 @@ class CatalogoProvider extends ChangeNotifier {
 
 class SesionProvider extends ChangeNotifier {
   Usuario? _usuario;
+  List<Usuario> usuarios = [];
+
   Usuario? get usuario => _usuario;
   bool get loggedIn => _usuario != null;
 
   bool get esSupervisor =>
       _usuario?.permisos == 'supervisor' || _usuario?.permisos == 'admin';
   bool get esAdmin => _usuario?.permisos == 'admin';
+
+  String? nombreUsuario(int? idUsuario) {
+    if (idUsuario == null) return null;
+    try {
+      return usuarios.firstWhere((u) => u.id == idUsuario).nombre;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void setUsuarios(List<Usuario> lista) {
+    usuarios = lista;
+    notifyListeners();
+  }
 
   void login(Usuario u) {
     _usuario = u;
@@ -112,7 +131,8 @@ class MesaProvider extends ChangeNotifier {
     _lineasBorradas.clear();
 
     final lista = (data['detalles'] as List? ?? [])
-        .map((j) => LineaPedido.fromJson(j)).toList();
+        .map((j) => LineaPedido.fromJson(j))
+        .toList();
     lista.sort((a, b) => a.orden.compareTo(b.orden));
     lineas = lista;
     _lineasOriginales = lista.map((l) => l.copyWith()).toList();
@@ -127,7 +147,10 @@ class MesaProvider extends ChangeNotifier {
   }
 
   void agregarLinea(LineaPedido linea) {
-    linea.orden = (lineas.isEmpty ? 0 : lineas.map((l) => l.orden).reduce((a, b) => a > b ? a : b)) + 1;
+    linea.orden = (lineas.isEmpty
+            ? 0
+            : lineas.map((l) => l.orden).reduce((a, b) => a > b ? a : b)) +
+        1;
     lineas.add(linea);
     notifyListeners();
   }

@@ -34,6 +34,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   Timer? _pingTimer;
   bool _guardando = false;
   bool _offline = false;
+  bool _cargandoPedido = true;
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
@@ -58,6 +59,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   Future<void> _cargarPedido() async {
     final api = context.read<ApiService>();
     final mesaPv = context.read<MesaProvider>();
+    if (mounted) setState(() => _cargandoPedido = true);
 
     try {
       final data = await api.getPedido(widget.idPedido);
@@ -71,9 +73,15 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       if (_clienteCtrl.text != mesaPv.nombreCliente) {
         _clienteCtrl.text = mesaPv.nombreCliente;
       }
-      setState(() => _offline = false);
+      setState(() {
+        _offline = false;
+        _cargandoPedido = false;
+      });
     } catch (_) {
-      setState(() => _offline = true);
+      setState(() {
+        _offline = true;
+        _cargandoPedido = false;
+      });
       // modo offline: esperar y reintentar
       Future.delayed(const Duration(seconds: 5), _cargarPedido);
     }
@@ -94,7 +102,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
   }
 
-  Future<bool> _guardar() async {
+  Future<bool> _guardar({bool imprimir = true}) async {
     if (_guardando) return false;
     final api = context.read<ApiService>();
     final catalogo = context.read<CatalogoProvider>();
@@ -122,16 +130,18 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         for (final imp in catalogo.impresoras) imp.id: imp,
       };
 
-      // Imprimir confirmación en impresora ESC/POS por red
-      await SunmiService.imprimirConfirmacion(
-        idMesa: widget.idMesa,
-        camarero: sesion.usuario?.nombre ?? '',
-        lineasNuevas: lineasNuevas,
-        lineasEliminadas: lineasEliminadas,
-        lineasMovidas: lineasMovidas,
-        impresoraPorProducto: impresoraPorProducto,
-        impresorasPorId: impresorasPorId,
-      );
+      if (imprimir) {
+        // Imprimir confirmación en impresora ESC/POS por red
+        await SunmiService.imprimirConfirmacion(
+          idMesa: widget.idMesa,
+          camarero: sesion.usuario?.nombre ?? '',
+          lineasNuevas: lineasNuevas,
+          lineasEliminadas: lineasEliminadas,
+          lineasMovidas: lineasMovidas,
+          impresoraPorProducto: impresoraPorProducto,
+          impresorasPorId: impresorasPorId,
+        );
+      }
 
       // Recargar para sincronizar estado con servidor
       await _cargarPedido();
@@ -164,6 +174,33 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     Future.delayed(const Duration(seconds: 10), () {
       if (mounted && _offline) _guardar();
     });
+  }
+
+  Future<void> _guardarConDialogoImpresion() async {
+    final noImprimir = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: const Text('Guardar pedido'),
+        content: const Text('¿Quieres imprimir los cambios?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('No Imprimir'),
+          ),
+        ],
+      ),
+    );
+
+    if (noImprimir != true) return;
+    final guardadoOk = await _guardar(imprimir: false);
+    if (guardadoOk && mounted) {
+      Navigator.pop(context);
+    }
   }
 
   Future<void> _salirSinGuardar() async {
@@ -285,7 +322,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
       if (def != null) {
         defaults[g.id] = OpcionElegida(
-          nombre: def.nombre,
+          nombre: def.nombreOpcion,
           predeterminado: def.predeterminado,
         );
       }
@@ -302,9 +339,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       idProducto: p.id,
       cantidad: cantidad,
       comentario: comentario,
-      nombreProducto: p.nombre,
+      nombreProducto: p.nombreProductoPantalla,
       opcionesElegidas: opciones,
-      textoImprimir: p.textoImprimir,
+      textoImprimirBarraCocina: p.textoImprimirBarraCocina,
       orden: 0,
     ));
   }
@@ -443,7 +480,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                           Navigator.pop(context);
                         }
                       },
-                onLongPress: _guardando ? null : _salirSinGuardar,
+                onLongPress: _guardando ? null : _guardarConDialogoImpresion,
                 icon: Icon(
                   Icons.save,
                   color: _guardando ? Colors.red : Colors.white,
@@ -482,34 +519,37 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 )
               : null,
         ),
-        body: Row(
-          children: [
-            // ── Columna izquierda: catálogo ────────────────────
-            Expanded(
-              flex: 1,
-              child: mesaPv.soloLectura
-                  ? const Center(
-                      child: Text('Modo solo lectura',
-                          style: TextStyle(
-                              color: AppTheme.colorTextoGris, fontSize: 18)))
-                  : CatalogoPanel(
-                      key: _catalogoKey,
-                      onTap: onProductoTap,
-                      onLongPress: onProductoLongPress,
+        body: _cargandoPedido
+            ? const Center(child: CircularProgressIndicator())
+            : Row(
+                children: [
+                  // ── Columna izquierda: catálogo ────────────────────
+                  Expanded(
+                    flex: 1,
+                    child: mesaPv.soloLectura
+                        ? const Center(
+                            child: Text('Modo solo lectura',
+                                style: TextStyle(
+                                    color: AppTheme.colorTextoGris,
+                                    fontSize: 18)))
+                        : CatalogoPanel(
+                            key: _catalogoKey,
+                            onTap: onProductoTap,
+                            onLongPress: onProductoLongPress,
+                          ),
+                  ),
+                  const VerticalDivider(width: 1, color: Color(0xFF333333)),
+                  // ── Columna derecha: líneas del pedido ─────────────
+                  Expanded(
+                    flex: 1,
+                    child: LineasPanel(
+                      lineas: mesaPv.lineas,
+                      soloLectura: mesaPv.soloLectura,
+                      onLineaTap: onLineaTap,
                     ),
-            ),
-            const VerticalDivider(width: 1, color: Color(0xFF333333)),
-            // ── Columna derecha: líneas del pedido ─────────────
-            Expanded(
-              flex: 1,
-              child: LineasPanel(
-                lineas: mesaPv.lineas,
-                soloLectura: mesaPv.soloLectura,
-                onLineaTap: onLineaTap,
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

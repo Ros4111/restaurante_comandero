@@ -50,6 +50,7 @@ class _MesasScreenState extends State<MesasScreen> {
 
   Future<void> _cargar() async {
     final api = context.read<ApiService>();
+    final sesion = context.read<SesionProvider>();
     try {
       _terminalSerie ??= await api.terminalSerie();
       final mesas = await api.getMesas();
@@ -70,7 +71,9 @@ class _MesasScreenState extends State<MesasScreen> {
           idMesa: m.idMesa,
           estado: m.estado,
           idUsuarioBloqueo: m.idUsuarioBloqueo,
-          nombreUsuarioBloqueo: terminalBloqueo,
+          nombreUsuarioBloqueo: bloqueoVigente
+            ? (sesion.nombreUsuario(m.idUsuarioBloqueo) ?? m.nombreUsuarioBloqueo)
+            : null,
           horaBloqueo: m.horaBloqueo,
           terminalSerieBloqueo: terminalBloqueo,
           nombreCliente: m.nombreCliente,
@@ -470,7 +473,7 @@ class _MesaTile extends StatelessWidget {
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Icon(Icons.lock, color: Colors.orange, size: 14),
                 const SizedBox(width: 4),
-                Text(serieBloqueo,
+                Text((mesa.nombreUsuarioBloqueo ?? serieBloqueo),
                     style: const TextStyle(color: Colors.orange, fontSize: 12)),
               ]),
             ],

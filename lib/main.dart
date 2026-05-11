@@ -10,6 +10,8 @@ import 'utils/theme.dart';
 import 'screens/config_screen.dart';
 import 'screens/login_screen.dart';
 
+final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -31,8 +33,75 @@ void main() async {
   );
 }
 
-class RestauranteApp extends StatelessWidget {
+class RestauranteApp extends StatefulWidget {
   const RestauranteApp({super.key});
+
+  @override
+  State<RestauranteApp> createState() => _RestauranteAppState();
+}
+
+class _RestauranteAppState extends State<RestauranteApp> {
+  late ApiService _api;
+  bool _initialized = false;
+  bool _mostrandoDialogo = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      _api = context.read<ApiService>();
+      _api.addListener(_onApiChange);
+    }
+  }
+
+  @override
+  void dispose() {
+    _api.removeListener(_onApiChange);
+    super.dispose();
+  }
+
+  void _onApiChange() {
+    if (_api.tokenExpirado && !_mostrandoDialogo) {
+      _mostrandoDialogo = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _mostrarDialogoSesion());
+    }
+  }
+
+  Future<void> _mostrarDialogoSesion() async {
+    final nav = _navigatorKey.currentState;
+    if (nav == null || !mounted) {
+      _mostrandoDialogo = false;
+      return;
+    }
+
+    await showDialog(
+      context: nav.overlay!.context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: const Text('Reiniciar sesión'),
+        content: const Text(
+            'La sesión ha caducado o no es válida. Inicia sesión de nuevo.'),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(nav.overlay!.context).pop(),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
+
+    _api.clearToken();
+    _api.resetTokenExpirado();
+    if (mounted) context.read<SesionProvider>().logout();
+    _mostrandoDialogo = false;
+
+    nav.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +109,7 @@ class RestauranteApp extends StatelessWidget {
       title: 'TPV Restaurante',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
+      navigatorKey: _navigatorKey,
       home: const Inicio(),
     );
   }
