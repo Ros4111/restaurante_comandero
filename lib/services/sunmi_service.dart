@@ -447,6 +447,44 @@ class SunmiService {
     await SunmiPrinter.cutPaper();
   }
 
+  /// Imprime una imagen (bytes ya cargados) en una impresora ESC/POS por red.
+  /// [usarRaster] → true usa imageRaster() (ESC *); false usa image() (GS v 0).
+  /// Devuelve una cadena de resultado para mostrar al usuario.
+  static Future<String> imprimirImagenLogoRed({
+    required Uint8List imageBytes,
+    required bool usarRaster,
+    required String ip,
+    required int puerto,
+  }) async {
+    try {
+      final img = im.decodeImage(imageBytes);
+      if (img == null) return 'No se pudo decodificar la imagen';
+
+      final profile = await CapabilityProfile.load();
+      final printer = NetworkPrinter(PaperSize.mm80, profile);
+      final result = await printer.connect(
+        ip,
+        port: puerto,
+        timeout: const Duration(seconds: 8),
+      );
+      if (result != PosPrintResult.success) {
+        return 'Error al conectar ($result)';
+      }
+
+      if (usarRaster) {
+        printer.imageRaster(img);
+      } else {
+        printer.image(img);
+      }
+      printer.cut();
+      await Future.delayed(const Duration(milliseconds: 900));
+      printer.disconnect();
+      return 'OK · ${usarRaster ? "imageRaster()" : "image()"} → $ip:$puerto';
+    } catch (e) {
+      return 'Error: $e';
+    }
+  }
+
   static String _escPosSafeText(String input) {
     var normalized = input
         .replaceAll('’', "'")
@@ -471,8 +509,6 @@ class SunmiService {
     normalized = normalized
         .replaceAll('⅓', '1/3')
         .replaceAll('¼', '1/4')
-        .replaceAll('¾', '3/4')
-        .replaceAll('⅛', '1/8')
         .replaceAll('⅕', '1/5')
         .replaceAll('½', '1/2')
         .replaceAll('€', 'Eur');

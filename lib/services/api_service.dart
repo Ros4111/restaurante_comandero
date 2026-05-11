@@ -427,4 +427,14 @@ class ApiService extends ChangeNotifier {
       'nombre_cliente': nombreCliente.trim(),
     });
   }
+
+  /// Envía al servidor los nuevos órdenes de productos y/o categorías.
+  /// [items] es una lista de mapas con las claves:
+  ///   - 'tipo': 'producto' | 'categoria'
+  ///   - 'id': int
+  ///   - 'orden': int
+  Future<void> reordenarCatalogo(
+      List<Map<String, dynamic>> items) async {
+    await _request('POST', '/catalogo/reordenar', body: {'items': items});
+  }
 }

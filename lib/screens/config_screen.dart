@@ -94,15 +94,15 @@ class _ConfigScreenState extends State<ConfigScreen> {
         ..addAll(data.map(_ImpresoraFormData.fromJson));
       setState(() {});
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error =
-            'No se pudo cargar la configuración de impresoras. Revisa la URL.';
-        _errorIcon = Icons.print_disabled;
-      });
+      if (mounted) {
+        setState(() {
+          _error =
+              'No se pudo cargar la configuración de impresoras. Revisa la URL.';
+          _errorIcon = Icons.print_disabled;
+        });
+      }
     } finally {
-      if (!mounted) return;
-      setState(() => _loadingImpresoras = false);
+      if (mounted) setState(() => _loadingImpresoras = false);
     }
   }
 
@@ -214,18 +214,19 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _impresoras.add(_ImpresoraFormData.fromJson(nueva));
       setState(() {});
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _errorIcon = Icons.print_disabled;
-      });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _errorIcon = Icons.print_disabled;
+        });
+      }
     } finally {
-      if (!mounted) return;
-      setState(() => _loadingImpresoras = false);
+      if (mounted) setState(() => _loadingImpresoras = false);
     }
   }
 
   Future<void> _eliminarImpresora(_ImpresoraFormData impresora) async {
+    final api = context.read<ApiService>();
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -246,7 +247,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
     );
     if (confirmar != true) return;
 
-    final api = context.read<ApiService>();
     setState(() {
       _loadingImpresoras = true;
       _error = null;
@@ -259,14 +259,14 @@ class _ConfigScreenState extends State<ConfigScreen> {
       impresora.dispose();
       setState(() {});
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _errorIcon = Icons.warning_amber_rounded;
-      });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _errorIcon = Icons.warning_amber_rounded;
+        });
+      }
     } finally {
-      if (!mounted) return;
-      setState(() => _loadingImpresoras = false);
+      if (mounted) setState(() => _loadingImpresoras = false);
     }
   }
 

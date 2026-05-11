@@ -203,30 +203,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
   }
 
-  Future<void> _salirSinGuardar() async {
-    final confirmarSalida = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppTheme.colorTarjeta,
-        title: const Text('¿Salir sin Guardar?'),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sí'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-        ],
-      ),
-    );
-    if (confirmarSalida == true && mounted) {
-      Navigator.pop(context);
-    }
-  }
-
   Future<void> _cerrarMesa() async {
+    final api = context.read<ApiService>();
     final confirmCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -274,7 +252,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     );
     confirmCtrl.dispose();
     if (ok != true) return;
-    final api = context.read<ApiService>();
     try {
       await api.cerrarMesa(widget.idPedido);
       if (mounted) Navigator.pop(context);
@@ -347,7 +324,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   void onLineaTap(LineaPedido linea) async {
-    if (context.read<MesaProvider>().soloLectura) return;
+    final mesaPv = context.read<MesaProvider>();
+    if (mesaPv.soloLectura) return;
     final catalogo = context.read<CatalogoProvider>();
     final producto =
         catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
@@ -370,7 +348,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       ),
     );
     if (result == null) return;
-    final mesaPv = context.read<MesaProvider>();
     if (result['accion'] == 'eliminar') {
       mesaPv.eliminarLinea(linea);
     } else if (result['accion'] == 'mover') {
@@ -409,19 +386,17 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     return true;
   }
 
-  Future<bool> _onWillPop() async {
-    _catalogoKey.currentState?.volverCategoriaSuperior();
-    return false;
-  }
-
   @override
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final mesaPv = context.watch<MesaProvider>();
     final sesion = context.watch<SesionProvider>();
 
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _catalogoKey.currentState?.volverCategoriaSuperior();
+      },
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
@@ -476,9 +451,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                     ? null
                     : () async {
                         final guardadoOk = await _guardar();
-                        if (guardadoOk && mounted) {
-                          Navigator.pop(context);
-                        }
+                        if (guardadoOk && mounted) Navigator.pop(this.context);
                       },
                 onLongPress: _guardando ? null : _guardarConDialogoImpresion,
                 icon: Icon(

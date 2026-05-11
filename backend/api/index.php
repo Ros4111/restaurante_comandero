@@ -67,6 +67,10 @@ if ($uri === '/catalogo' && $method === 'GET') {
     require __DIR__ . '/endpoints/catalogo.php';
     endpointCatalogo($payload);
 }
+if ($uri === '/catalogo/reordenar' && $method === 'POST') {
+    require __DIR__ . '/endpoints/catalogo.php';
+    endpointCatalogoReordenar($payload);
+}
 
 // Usuarios admin
 if ($uri === '/usuarios/admin/lista' && $method === 'GET') {

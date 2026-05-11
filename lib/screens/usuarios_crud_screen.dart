@@ -39,23 +39,24 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
   }
 
   Future<void> _crear() async {
+    final api = context.read<ApiService>();
     final form = await _showUsuarioDialog();
     if (form == null) return;
-    final api = context.read<ApiService>();
     await api.crearUsuarioAdmin(form);
     await _cargar();
   }
 
   Future<void> _editar(Map<String, dynamic> u) async {
+    final api = context.read<ApiService>();
     final form = await _showUsuarioDialog(usuario: u);
     if (form == null) return;
-    final api = context.read<ApiService>();
     await api.actualizarUsuarioAdmin(
         int.parse(u['id_usuario'].toString()), form);
     await _cargar();
   }
 
   Future<void> _eliminar(Map<String, dynamic> u) async {
+    final api = context.read<ApiService>();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -74,7 +75,6 @@ class _UsuariosCrudScreenState extends State<UsuariosCrudScreen> {
       ),
     );
     if (ok != true) return;
-    final api = context.read<ApiService>();
     await api.eliminarUsuarioAdmin(int.parse(u['id_usuario'].toString()));
     await _cargar();
   }

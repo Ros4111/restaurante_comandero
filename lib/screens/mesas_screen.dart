@@ -24,6 +24,7 @@ class _MesasScreenState extends State<MesasScreen> {
   );
   List<MesaResumen> _mesas = [];
   bool _loading = true;
+  bool _fabVisible = true;
   Timer? _refreshTimer;
   String _version = '';
   String? _terminalSerie;
@@ -59,10 +60,6 @@ class _MesasScreenState extends State<MesasScreen> {
           now.year, now.month, now.day, now.hour, now.minute, now.second);
 
       final lista = mesas.map((m) {
-        if (m.idMesa == 11) {
-          print(
-              'Mesa ${m.idMesa}: bloqueo=${m.horaBloqueo}, ahora=$ahora, bloqueoVigente=${_bloqueoVigente(m.horaBloqueo, ahora)}');
-        }
         final bloqueoVigente = _bloqueoVigente(m.horaBloqueo, ahora) &&
             (m.terminalSerieBloqueo ?? '').isNotEmpty;
         final terminalBloqueo = bloqueoVigente ? m.terminalSerieBloqueo : null;
@@ -72,8 +69,9 @@ class _MesasScreenState extends State<MesasScreen> {
           estado: m.estado,
           idUsuarioBloqueo: m.idUsuarioBloqueo,
           nombreUsuarioBloqueo: bloqueoVigente
-            ? (sesion.nombreUsuario(m.idUsuarioBloqueo) ?? m.nombreUsuarioBloqueo)
-            : null,
+              ? (sesion.nombreUsuario(m.idUsuarioBloqueo) ??
+                  m.nombreUsuarioBloqueo)
+              : null,
           horaBloqueo: m.horaBloqueo,
           terminalSerieBloqueo: terminalBloqueo,
           nombreCliente: m.nombreCliente,
@@ -137,12 +135,17 @@ class _MesasScreenState extends State<MesasScreen> {
   }
 
   Future<void> _abrirMesa() async {
+    final api = context.read<ApiService>();
+    setState(() => _fabVisible = false);
     final numStr = await showDialog<String>(
       context: context,
       builder: (ctx) => const _AbrirMesaDialog(),
     );
 
-    if (numStr == null || numStr.isEmpty) return;
+    if (numStr == null || numStr.isEmpty) {
+      if (mounted) setState(() => _fabVisible = true);
+      return;
+    }
     final num = int.tryParse(numStr);
     if (num == null || num <= 0) return;
 
@@ -154,10 +157,10 @@ class _MesasScreenState extends State<MesasScreen> {
     }
 
     try {
-      final api = context.read<ApiService>();
       final idPedido = await api.abrirMesa(num);
       _navPedido(idPedido, num, bloqueadoPorMi: true);
     } catch (e) {
+      if (mounted) setState(() => _fabVisible = true);
       _showError(e.toString());
     }
   }
@@ -192,7 +195,10 @@ class _MesasScreenState extends State<MesasScreen> {
           bloqueador: bloqueador,
         ),
       ),
-    ).then((_) => _cargar());
+    ).then((_) {
+      if (mounted) setState(() => _fabVisible = true);
+      _cargar();
+    });
   }
 
   void _showError(String msg) {
@@ -272,12 +278,14 @@ class _MesasScreenState extends State<MesasScreen> {
                 ),
               ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _abrirMesa,
-        icon: const Icon(Icons.add),
-        label: const Text('Abrir Mesa'),
-        backgroundColor: AppTheme.colorPrimario,
-      ),
+      floatingActionButton: _fabVisible
+          ? FloatingActionButton.extended(
+              onPressed: _abrirMesa,
+              icon: const Icon(Icons.add),
+              label: const Text('Abrir Mesa'),
+              backgroundColor: AppTheme.colorPrimario,
+            )
+          : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _mesas.isEmpty
@@ -506,11 +514,16 @@ class _AbrirMesaDialogState extends State<_AbrirMesaDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final dialogWidth = (screenWidth - 20).clamp(0.0, 400.0);
+    final horizontalInset = ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
     return AlertDialog(
       backgroundColor: AppTheme.colorTarjeta,
-      title: const Text('Numero de mesa'),
+      contentPadding: const EdgeInsets.all(6),
+      insetPadding: EdgeInsets.symmetric(horizontal: horizontalInset, vertical: 24),
+      title: const Text('Número de mesa'),
       content: SizedBox(
-        width: 320,
+        width: dialogWidth,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -663,7 +676,7 @@ class _BotonNumMesa extends StatelessWidget {
           child: Text(
             label,
             style: const TextStyle(
-                color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
           ),
         ),
       ),

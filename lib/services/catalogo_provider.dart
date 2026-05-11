@@ -11,6 +11,8 @@ class CatalogoProvider extends ChangeNotifier {
 
   bool get loaded => categorias.isNotEmpty;
 
+  void notificarCambios() => notifyListeners();
+
   void cargar(Map<String, dynamic> data) {
     categorias =
         (data['categorias'] as List).map((j) => Categoria.fromJson(j)).toList();

@@ -14,6 +14,47 @@ function ensureTablaCodigosColumn(PDO $db): void {
     }
 }
 
+function endpointCatalogoReordenar(array $payload): void {
+    requireRole($payload, ['admin', 'supervisor']);
+
+    $body  = getBody();
+    $items = $body['items'] ?? [];
+
+    if (!is_array($items) || count($items) === 0) {
+        jsonError('Se requiere una lista de items no vacía');
+    }
+
+    $db = getDB();
+    $db->beginTransaction();
+    try {
+        $stCat  = $db->prepare('UPDATE categoria_producto SET orden = ? WHERE id_categoria = ?');
+        $stProd = $db->prepare('UPDATE productos SET orden = ? WHERE id_producto = ?');
+
+        foreach ($items as $item) {
+            $tipo  = $item['tipo']  ?? '';
+            $id    = isset($item['id'])    ? (int)$item['id']    : null;
+            $orden = isset($item['orden']) ? (int)$item['orden'] : null;
+
+            if (!in_array($tipo, ['categoria', 'producto'], true) || $id === null || $orden === null) {
+                $db->rollBack();
+                jsonError("Item inválido: " . json_encode($item));
+            }
+
+            if ($tipo === 'categoria') {
+                $stCat->execute([$orden, $id]);
+            } else {
+                $stProd->execute([$orden, $id]);
+            }
+        }
+
+        $db->commit();
+        jsonOk(['actualizados' => count($items)]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        jsonError('Error al reordenar: ' . $e->getMessage(), 500);
+    }
+}
+
 function endpointCatalogo(array $payload): void {
     $db = getDB();
     ensureTablaCodigosColumn($db);

@@ -2,14 +2,18 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../services/catalogo_provider.dart';
 import '../services/kiosk_android.dart';
+import '../services/sunmi_service.dart';
 import '../utils/theme.dart';
 import 'config_screen.dart';
 import 'datafono_sim_screen.dart';
+import 'nfc_screen.dart';
 import 'producto_editor_screen.dart';
+import 'reordenar_productos_screen.dart';
 import 'usuarios_crud_screen.dart';
 
 class SettingsMenuScreen extends StatelessWidget {
@@ -56,6 +60,22 @@ class SettingsMenuScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => const ProductoEditorScreen(),
       ),
+    );
+  }
+
+  void _openReordenarProductos(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ReordenarProductosScreen(),
+      ),
+    );
+  }
+
+  void _openNfc(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NfcScreen()),
     );
   }
 
@@ -112,6 +132,24 @@ class SettingsMenuScreen extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
+                  onPressed: () => _openReordenarProductos(context),
+                  icon: const Icon(Icons.sort),
+                  label: const Text('Reordenar productos'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _openNfc(context),
+                  icon: const Icon(Icons.contactless_outlined),
+                  label: const Text('Lector NFC'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
                   onPressed: () => _openSimuladorDatfono(context),
                   icon: const Icon(Icons.credit_card),
                   label: const Text('Simulador datáfono'),
@@ -128,6 +166,10 @@ class SettingsMenuScreen extends StatelessWidget {
                   ),
                 ),
               ],
+              const SizedBox(height: 20),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              const _PrintLogoPanel(),
               if (!kIsWeb && Platform.isAndroid) ...[
                 const SizedBox(height: 20),
                 const Divider(height: 1),
@@ -141,6 +183,103 @@ class SettingsMenuScreen extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PrintLogoPanel extends StatefulWidget {
+  const _PrintLogoPanel();
+
+  @override
+  State<_PrintLogoPanel> createState() => _PrintLogoPanelState();
+}
+
+class _PrintLogoPanelState extends State<_PrintLogoPanel> {
+  static const _ip = '192.168.100.10';
+  static const _puerto = 9100;
+
+  bool _imprimiendo = false;
+  String? _resultado;
+
+  Future<void> _imprimir(String asset, bool raster) async {
+    setState(() {
+      _imprimiendo = true;
+      _resultado = null;
+    });
+    try {
+      final data = await rootBundle.load(asset);
+      final bytes = data.buffer.asUint8List();
+      final msg = await SunmiService.imprimirImagenLogoRed(
+        imageBytes: bytes,
+        usarRaster: raster,
+        ip: _ip,
+        puerto: _puerto,
+      );
+      if (mounted) setState(() => _resultado = msg);
+    } catch (e) {
+      if (mounted) setState(() => _resultado = 'Error: $e');
+    } finally {
+      if (mounted) setState(() => _imprimiendo = false);
+    }
+  }
+
+  Widget _boton(String label, VoidCallback? onTap) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: onTap,
+            child: Text(label),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(children: [
+          Icon(Icons.image_outlined, color: AppTheme.colorPrimario),
+          SizedBox(width: 8),
+          Text(
+            'Test impresión logo · $_ip:$_puerto',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        if (_imprimiendo)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        else ...[
+          _boton(
+              'JPG  ·  image()', () => _imprimir('assets/ticket.jpg', false)),
+          _boton(
+              'BMP  ·  image()', () => _imprimir('assets/ticket.bmp', false)),
+        ],
+        if (_resultado != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _resultado!,
+              style: TextStyle(
+                fontSize: 13,
+                color: _resultado!.startsWith('Error') ||
+                        _resultado!.startsWith('No se')
+                    ? AppTheme.colorAcento
+                    : Colors.green,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Kiosco: administrador de dispositivo + bloqueo de tarea (pantalla fija en esta app).
 class _AndroidKioskPanel extends StatefulWidget {
