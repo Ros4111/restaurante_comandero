@@ -142,6 +142,12 @@ if (preg_match('#^/mesas/(\d+)/expulsar$#', $uri, $m) && $method === 'POST') {
     endpointMesaExpulsar($payload, (int)$m[1]);
 }
 
+// Dispositivos
+if ($uri === '/dispositivos/ping' && $method === 'POST') {
+    require __DIR__ . '/endpoints/dispositivos.php';
+    endpointDispositivoPing($payload);
+}
+
 // Pedidos
 if (preg_match('#^/pedidos/(\d+)$#', $uri, $m) && $method === 'GET') {
     require __DIR__ . '/endpoints/pedidos.php';

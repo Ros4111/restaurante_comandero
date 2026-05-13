@@ -15,8 +15,10 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
         return;
     }
     $ins = $db->prepare(
-        'INSERT INTO productos_opciones (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden)
-         VALUES (?,?,?,?,?,?)'
+        'INSERT INTO productos_opciones
+         (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+          suplemento_sin_iva, porcentaje_IVA)
+         VALUES (?,?,?,?,?,?,?,?)'
     );
     $ordenAuto = [];
     $yaPredeterminado = [];
@@ -44,7 +46,9 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
             $ordenAuto[$idGr] = ($ordenAuto[$idGr] ?? 0) + 1;
             $ord = $ordenAuto[$idGr];
         }
-        $ins->execute([$idProducto, $idGr, $nom, $pred, $disp, $ord]);
+        $supl    = round((float)($o['suplemento_sin_iva'] ?? 0), 2);
+        $pctIVA  = round((float)($o['porcentaje_IVA']    ?? 0), 2);
+        $ins->execute([$idProducto, $idGr, $nom, $pred, $disp, $ord, $supl, $pctIVA]);
     }
 }
 
@@ -84,7 +88,8 @@ function endpointProductoGet(array $payload, int $id): void {
     $db = getDB();
     $st = $db->prepare(
         'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                texto_imprimir_cliente, id_impresora, disponible, orden
+                texto_imprimir_cliente, id_impresora, disponible, orden,
+                base_imponible, porcentaje_IVA
            FROM productos WHERE id_producto = ?'
     );
     $st->execute([$id]);
@@ -92,7 +97,8 @@ function endpointProductoGet(array $payload, int $id): void {
     if (!$row) jsonError('Producto no encontrado', 404);
 
     $stOp = $db->prepare(
-        'SELECT id_opcion, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden
+        'SELECT id_opcion, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+                suplemento_sin_iva, porcentaje_IVA
            FROM productos_opciones
           WHERE id_producto = ?
        ORDER BY id_grupo_opciones, orden, id_opcion'
@@ -110,11 +116,13 @@ function endpointProductoCrear(array $payload): void {
     $idCat = (int)($body['id_categoria'] ?? 0);
     if ($nombre === '' || $idCat <= 0) jsonError('Nombre e id_categoria son obligatorios', 400);
 
-    $texto = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
+    $texto        = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
     $textoCliente = trim((string)($body['texto_imprimir_cliente'] ?? ''));
-    $idImp = (int)($body['id_impresora'] ?? 0);
-    $disp = (int)!empty($body['disponible']);
-    $orden = (int)($body['orden'] ?? 0);
+    $idImp        = (int)($body['id_impresora'] ?? 0);
+    $disp         = (int)!empty($body['disponible']);
+    $orden        = (int)($body['orden'] ?? 0);
+    $baseImp      = round((float)($body['base_imponible'] ?? 0), 2);
+    $pctIVA       = round((float)($body['porcentaje_IVA']  ?? 0), 2);
 
     $db = getDB();
     if ($orden <= 0) {
@@ -125,12 +133,14 @@ function endpointProductoCrear(array $payload): void {
 
     $st = $db->prepare(
         'INSERT INTO productos (nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                texto_imprimir_cliente, id_impresora, disponible, orden)
-         VALUES (?,?,?,?,?,?,?)'
+                texto_imprimir_cliente, id_impresora, disponible, orden,
+                base_imponible, porcentaje_IVA)
+         VALUES (?,?,?,?,?,?,?,?,?)'
     );
     $db->beginTransaction();
     try {
-        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden]);
+        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden,
+                      $baseImp, $pctIVA]);
         $id = (int)$db->lastInsertId();
         if (array_key_exists('opciones', $body)) {
             productoGuardarOpciones($db, $id, $body['opciones']);
@@ -151,11 +161,13 @@ function endpointProductoActualizar(array $payload, int $id): void {
     $idCat = (int)($body['id_categoria'] ?? 0);
     if ($nombre === '' || $idCat <= 0) jsonError('Nombre e id_categoria son obligatorios', 400);
 
-    $texto = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
+    $texto        = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
     $textoCliente = trim((string)($body['texto_imprimir_cliente'] ?? ''));
-    $idImp = (int)($body['id_impresora'] ?? 0);
-    $disp = (int)!empty($body['disponible']);
-    $orden = (int)($body['orden'] ?? 0);
+    $idImp        = (int)($body['id_impresora'] ?? 0);
+    $disp         = (int)!empty($body['disponible']);
+    $orden        = (int)($body['orden'] ?? 0);
+    $baseImp      = round((float)($body['base_imponible'] ?? 0), 2);
+    $pctIVA       = round((float)($body['porcentaje_IVA']  ?? 0), 2);
 
     $db = getDB();
     if ($orden <= 0) {
@@ -165,13 +177,16 @@ function endpointProductoActualizar(array $payload, int $id): void {
     }
 
     $st = $db->prepare(
-        'UPDATE productos SET nombre_producto_pantalla = ?, id_categoria = ?, texto_imprimir_cocina = ?,
-                texto_imprimir_cliente = ?, id_impresora = ?, disponible = ?, orden = ?
+        'UPDATE productos
+            SET nombre_producto_pantalla = ?, id_categoria = ?, texto_imprimir_cocina = ?,
+                texto_imprimir_cliente = ?, id_impresora = ?, disponible = ?, orden = ?,
+                base_imponible = ?, porcentaje_IVA = ?
           WHERE id_producto = ?'
     );
     $db->beginTransaction();
     try {
-        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden, $id]);
+        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden,
+                      $baseImp, $pctIVA, $id]);
         if ($st->rowCount() === 0) {
             $chk = $db->prepare('SELECT 1 FROM productos WHERE id_producto = ?');
             $chk->execute([$id]);
@@ -222,7 +237,8 @@ function endpointProductoCopiar(array $payload): void {
     $db = getDB();
     $st = $db->prepare(
         'SELECT nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                texto_imprimir_cliente, id_impresora, disponible, orden
+                texto_imprimir_cliente, id_impresora, disponible, orden,
+                base_imponible, porcentaje_IVA
            FROM productos WHERE id_producto = ?'
     );
     $st->execute([$idO]);
@@ -242,8 +258,9 @@ function endpointProductoCopiar(array $payload): void {
     try {
         $ins = $db->prepare(
             'INSERT INTO productos (nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                     texto_imprimir_cliente, id_impresora, disponible, orden)
-             VALUES (?,?,?,?,?,?,?)'
+                     texto_imprimir_cliente, id_impresora, disponible, orden,
+                     base_imponible, porcentaje_IVA)
+             VALUES (?,?,?,?,?,?,?,?,?)'
         );
         $ins->execute([
             $nombreNuevo,
@@ -253,11 +270,14 @@ function endpointProductoCopiar(array $payload): void {
             (int)$orig['id_impresora'],
             (int)$orig['disponible'],
             $orden,
+            (float)($orig['base_imponible'] ?? 0),
+            (float)($orig['porcentaje_IVA']  ?? 0),
         ]);
         $idNuevo = (int)$db->lastInsertId();
 
         $op = $db->prepare(
-            'SELECT id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden
+            'SELECT id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+                    suplemento_sin_iva, porcentaje_IVA
                FROM productos_opciones WHERE id_producto = ?'
         );
         $op->execute([$idO]);
@@ -265,8 +285,10 @@ function endpointProductoCopiar(array $payload): void {
 
         if ($opts) {
             $insOp = $db->prepare(
-                'INSERT INTO productos_opciones (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden)
-                 VALUES (?,?,?,?,?,?)'
+                'INSERT INTO productos_opciones
+                 (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+                  suplemento_sin_iva, porcentaje_IVA)
+                 VALUES (?,?,?,?,?,?,?,?)'
             );
             foreach ($opts as $r) {
                 $insOp->execute([
@@ -276,6 +298,8 @@ function endpointProductoCopiar(array $payload): void {
                     (int)$r['predeterminado'],
                     (int)$r['disponible'],
                     (int)$r['orden'],
+                    (float)($r['suplemento_sin_iva'] ?? 0),
+                    (float)($r['porcentaje_IVA']     ?? 0),
                 ]);
             }
         }

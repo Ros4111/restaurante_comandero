@@ -16,21 +16,29 @@ class _FilaOpcionEdit {
     required this.idGrupo,
     String nombre = '',
     String orden = '',
+    String suplementoSinIva = '',
+    String porcentajeIVA = '',
     this.predeterminado = false,
     this.disponible = true,
   })  : nombre = TextEditingController(text: nombre),
-        orden = TextEditingController(text: orden);
+        orden = TextEditingController(text: orden),
+        suplementoSinIva = TextEditingController(text: suplementoSinIva),
+        porcentajeIVA = TextEditingController(text: porcentajeIVA);
 
   final int? idOpcion;
   int idGrupo;
   final TextEditingController nombre;
   final TextEditingController orden;
+  final TextEditingController suplementoSinIva;
+  final TextEditingController porcentajeIVA;
   bool predeterminado;
   bool disponible;
 
   void dispose() {
     nombre.dispose();
     orden.dispose();
+    suplementoSinIva.dispose();
+    porcentajeIVA.dispose();
   }
 
   Map<String, dynamic> toJsonBody() => {
@@ -39,6 +47,10 @@ class _FilaOpcionEdit {
         'predeterminado': predeterminado,
         'disponible': disponible,
         'orden': int.tryParse(orden.text.trim()) ?? 0,
+        'suplemento_sin_iva':
+            double.tryParse(suplementoSinIva.text.trim().replaceAll(',', '.')) ?? 0.0,
+        'porcentaje_IVA':
+            double.tryParse(porcentajeIVA.text.trim().replaceAll(',', '.')) ?? 0.0,
       };
 }
 
@@ -54,6 +66,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   final _textoImprimirBarraCocinaCtrl = TextEditingController();
   final _textoImprimirClienteCtrl = TextEditingController();
   final _ordenCtrl = TextEditingController();
+  final _baseImponibleCtrl = TextEditingController();
+  final _porcentajeIVACtrl = TextEditingController();
   final _buscarCtrl = TextEditingController();
 
   int? _id;
@@ -110,6 +124,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     _textoImprimirBarraCocinaCtrl.dispose();
     _textoImprimirClienteCtrl.dispose();
     _ordenCtrl.dispose();
+    _baseImponibleCtrl.dispose();
+    _porcentajeIVACtrl.dispose();
     _buscarCtrl.dispose();
     super.dispose();
   }
@@ -122,6 +138,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       _textoImprimirBarraCocinaCtrl.clear();
       _textoImprimirClienteCtrl.clear();
       _ordenCtrl.clear();
+      _baseImponibleCtrl.clear();
+      _porcentajeIVACtrl.clear();
       _disponible = true;
       _error = null;
     });
@@ -144,6 +162,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       if (idGrupoDefecto != null && !idsValidos.contains(idG)) {
         idG = idGrupoDefecto;
       }
+      final suplRaw   = double.tryParse((m['suplemento_sin_iva'] ?? 0).toString()) ?? 0.0;
+      final pctIVARaw = double.tryParse((m['porcentaje_IVA']    ?? 0).toString()) ?? 0.0;
       _filasOpciones.add(_FilaOpcionEdit(
         idOpcion: m['id_opcion'] != null
             ? int.tryParse(m['id_opcion'].toString())
@@ -151,6 +171,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         idGrupo: idG,
         nombre: m['nombre_opcion']?.toString() ?? '',
         orden: (m['orden'] ?? '').toString(),
+        suplementoSinIva: suplRaw   == 0.0 ? '' : suplRaw.toStringAsFixed(2),
+        porcentajeIVA:    pctIVARaw == 0.0 ? '' : pctIVARaw.toStringAsFixed(2),
         predeterminado: m['predeterminado'].toString() == '1',
         disponible: m['disponible'].toString() == '1',
       ));
@@ -202,6 +224,14 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         _textoImprimirClienteCtrl.text =
             j['texto_imprimir_cliente']?.toString() ?? '';
         _ordenCtrl.text = (j['orden'] ?? '').toString();
+        final baseImpVal =
+            double.tryParse((j['base_imponible'] ?? 0).toString()) ?? 0.0;
+        final pctIVAVal =
+            double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0;
+        _baseImponibleCtrl.text =
+            baseImpVal == 0.0 ? '' : baseImpVal.toStringAsFixed(2);
+        _porcentajeIVACtrl.text =
+            pctIVAVal == 0.0 ? '' : pctIVAVal.toStringAsFixed(2);
         _idCategoria = int.tryParse(j['id_categoria'].toString());
         _idImpresora = int.tryParse((j['id_impresora'] ?? 0).toString());
         _disponible = j['disponible'].toString() == '1';
@@ -265,6 +295,12 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
 
   Map<String, dynamic> _bodyParaApi() {
     final orden = int.tryParse(_ordenCtrl.text.trim());
+    final baseImponible =
+        double.tryParse(_baseImponibleCtrl.text.trim().replaceAll(',', '.')) ??
+            0.0;
+    final porcentajeIVA =
+        double.tryParse(_porcentajeIVACtrl.text.trim().replaceAll(',', '.')) ??
+            0.0;
     final opciones = _filasOpciones
         .map((f) => f.toJsonBody())
         .where((m) => (m['nombre_opcion'] as String).isNotEmpty)
@@ -278,6 +314,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       'texto_imprimir_cliente': _textoImprimirClienteCtrl.text.trim(),
       'id_impresora': _idImpresora ?? 0,
       'disponible': _disponible,
+      'base_imponible': baseImponible,
+      'porcentaje_IVA': porcentajeIVA,
       if (orden != null && orden > 0) 'orden': orden,
       'opciones': opciones,
     };
@@ -562,11 +600,11 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                 isDense: true,
               ),
             ),
-            const SizedBox(height: 8),
+                const SizedBox(height: 8),
             Row(
               children: [
                 SizedBox(
-                  width: 88,
+                  width: 72,
                   child: TextField(
                     controller: f.orden,
                     enabled: !_guardando,
@@ -574,6 +612,38 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Orden',
                       isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 96,
+                  child: TextField(
+                    controller: f.suplementoSinIva,
+                    enabled: !_guardando,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Suplem. s/IVA €',
+                      hintText: '0.00',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.euro_outlined, size: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 72,
+                  child: TextField(
+                    controller: f.porcentajeIVA,
+                    enabled: !_guardando,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: '% IVA',
+                      hintText: '0',
+                      isDense: true,
+                      suffixText: '%',
                     ),
                   ),
                 ),
@@ -777,6 +847,32 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                     labelText: 'Orden (opcional; vacío = automático al crear)',
                     filled: true,
                     fillColor: AppTheme.colorSuperficie,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _baseImponibleCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Base imponible (€)',
+                    hintText: '0.00',
+                    filled: true,
+                    fillColor: AppTheme.colorSuperficie,
+                    prefixIcon: Icon(Icons.euro_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _porcentajeIVACtrl,
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: '% IVA',
+                    hintText: '0.00',
+                    filled: true,
+                    fillColor: AppTheme.colorSuperficie,
+                    suffixText: '%',
                   ),
                 ),
                 const SizedBox(height: 8),

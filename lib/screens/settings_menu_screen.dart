@@ -11,6 +11,7 @@ import '../services/sunmi_service.dart';
 import '../utils/theme.dart';
 import 'config_screen.dart';
 import 'datafono_sim_screen.dart';
+import 'dictado_screen.dart';
 import 'nfc_screen.dart';
 import 'producto_editor_screen.dart';
 import 'reordenar_productos_screen.dart';
@@ -86,6 +87,13 @@ class SettingsMenuScreen extends StatelessWidget {
     );
   }
 
+  void _openDictado(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DictadoScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sesion = context.watch<SesionProvider>();
@@ -153,6 +161,15 @@ class SettingsMenuScreen extends StatelessWidget {
                   onPressed: () => _openSimuladorDatfono(context),
                   icon: const Icon(Icons.credit_card),
                   label: const Text('Simulador datáfono'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _openDictado(context),
+                  icon: const Icon(Icons.mic_outlined),
+                  label: const Text('Dictado'),
                 ),
               ),
               if (sesion.esAdmin) ...[

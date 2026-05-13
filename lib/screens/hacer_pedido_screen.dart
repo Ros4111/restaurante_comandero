@@ -206,6 +206,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   Future<void> _cerrarMesa() async {
     final api = context.read<ApiService>();
     final confirmCtrl = TextEditingController();
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -252,6 +253,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     );
     confirmCtrl.dispose();
     if (ok != true) return;
+    final guardadoOk = await _guardar();
+    if (!guardadoOk) return;
     try {
       await api.cerrarMesa(widget.idPedido);
       if (mounted) Navigator.pop(context);
@@ -386,11 +389,59 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     return true;
   }
 
+  // ── Cálculo de totales (usa precios del catálogo, que vienen de la BD) ──────
+  ({double base, double iva, double total}) _calcularTotales(
+      List<LineaPedido> lineas, CatalogoProvider catalogo) {
+    double base = 0;
+    double iva = 0;
+    for (final linea in lineas) {
+      final producto =
+          catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
+      if (producto == null) continue;
+      double precioLinea = producto.baseImponible;
+      for (final entry in linea.opcionesElegidas.entries) {
+        if (entry.value.predeterminado) continue;
+        final opts = catalogo.opcionesDeGrupo(producto.id, entry.key);
+        final match =
+            opts.where((o) => o.nombreOpcion == entry.value.nombre).firstOrNull;
+        if (match != null) precioLinea += match.suplementoSinIva;
+      }
+      final baseLinea = precioLinea * linea.cantidad;
+      base += baseLinea;
+      iva += baseLinea * producto.porcentajeIVA / 100;
+    }
+    return (base: base, iva: iva, total: base + iva);
+  }
+
+  Widget _buildTotalesStrip(
+      List<LineaPedido> lineas, CatalogoProvider catalogo) {
+    if (lineas.isEmpty) return const SizedBox.shrink();
+    final t = _calcularTotales(lineas, catalogo);
+    if (t.total == 0) return const SizedBox.shrink();
+    String fmt(double v) => '${v.toStringAsFixed(2)} €';
+    return Container(
+      color: const Color(0xFF1A2030),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          _TotalChip(label: 'Base', valor: fmt(t.base)),
+          const SizedBox(width: 10),
+          _TotalChip(label: 'IVA', valor: fmt(t.iva)),
+          const SizedBox(width: 10),
+          _TotalChip(
+              label: 'Total', valor: fmt(t.total), destacado: true),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final api = context.watch<ApiService>();
     final mesaPv = context.watch<MesaProvider>();
     final sesion = context.watch<SesionProvider>();
+    final catalogo = context.watch<CatalogoProvider>();
 
     return PopScope(
       canPop: false,
@@ -494,35 +545,83 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         ),
         body: _cargandoPedido
             ? const Center(child: CircularProgressIndicator())
-            : Row(
+            : Column(
                 children: [
-                  // ── Columna izquierda: catálogo ────────────────────
+                  _buildTotalesStrip(mesaPv.lineas, catalogo),
                   Expanded(
-                    flex: 1,
-                    child: mesaPv.soloLectura
-                        ? const Center(
-                            child: Text('Modo solo lectura',
-                                style: TextStyle(
-                                    color: AppTheme.colorTextoGris,
-                                    fontSize: 18)))
-                        : CatalogoPanel(
-                            key: _catalogoKey,
-                            onTap: onProductoTap,
-                            onLongPress: onProductoLongPress,
+                    child: Row(
+                      children: [
+                        // ── Columna izquierda: catálogo ──────────────
+                        Expanded(
+                          flex: 1,
+                          child: mesaPv.soloLectura
+                              ? const Center(
+                                  child: Text('Modo solo lectura',
+                                      style: TextStyle(
+                                          color: AppTheme.colorTextoGris,
+                                          fontSize: 18)))
+                              : CatalogoPanel(
+                                  key: _catalogoKey,
+                                  onTap: onProductoTap,
+                                  onLongPress: onProductoLongPress,
+                                ),
+                        ),
+                        const VerticalDivider(
+                            width: 1, color: Color(0xFF333333)),
+                        // ── Columna derecha: líneas del pedido ────────
+                        Expanded(
+                          flex: 1,
+                          child: LineasPanel(
+                            lineas: mesaPv.lineas,
+                            soloLectura: mesaPv.soloLectura,
+                            onLineaTap: onLineaTap,
                           ),
-                  ),
-                  const VerticalDivider(width: 1, color: Color(0xFF333333)),
-                  // ── Columna derecha: líneas del pedido ─────────────
-                  Expanded(
-                    flex: 1,
-                    child: LineasPanel(
-                      lineas: mesaPv.lineas,
-                      soloLectura: mesaPv.soloLectura,
-                      onLineaTap: onLineaTap,
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+      ),
+    );
+  }
+}
+
+// ── Widget auxiliar: chip de valor para la barra de totales ──────────────────
+
+class _TotalChip extends StatelessWidget {
+  final String label;
+  final String valor;
+  final bool destacado;
+
+  const _TotalChip({
+    required this.label,
+    required this.valor,
+    this.destacado = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: TextStyle(
+              fontSize: 12,
+              color: destacado ? Colors.white70 : Colors.white54,
+            ),
+          ),
+          TextSpan(
+            text: valor,
+            style: TextStyle(
+              fontSize: destacado ? 15 : 13,
+              fontWeight:
+                  destacado ? FontWeight.bold : FontWeight.normal,
+              color: destacado ? AppTheme.colorPrimario : Colors.white,
+            ),
+          ),
+        ],
       ),
     );
   }

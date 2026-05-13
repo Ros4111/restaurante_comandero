@@ -81,8 +81,15 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
   @override
   void initState() {
     super.initState();
-    // Diferimos para tener el contexto listo.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _cargarItems());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Seleccionar automáticamente la primera categoría raíz (ROOT).
+      final raices = _catalogo.categorias.where((c) => c.idPadre == 0).toList()
+        ..sort((a, b) => a.orden.compareTo(b.orden));
+      if (raices.isNotEmpty) {
+        setState(() => _categoriaPadre = raices.first);
+      }
+      _cargarItems();
+    });
   }
 
   // ── acciones ───────────────────────────────────────────────
@@ -148,6 +155,8 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
               idImpresora: catalogo.productos[idx].idImpresora,
               disponible: catalogo.productos[idx].disponible,
               orden: nuevoOrden,
+              baseImponible: catalogo.productos[idx].baseImponible,
+              porcentajeIVA: catalogo.productos[idx].porcentajeIVA,
             );
           }
         }
@@ -232,7 +241,6 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
                 Expanded(
                   child: _CategoryDropdown(
                     value: _categoriaPadre,
-                    rootLabel: 'Root (nivel superior)',
                     categorias: categoriasRaiz,
                     allCategorias: catalogo.categorias,
                     onChanged: (cat) {
@@ -297,14 +305,12 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
 
 class _CategoryDropdown extends StatelessWidget {
   final Categoria? value;
-  final String rootLabel;
   final List<Categoria> categorias;
   final List<Categoria> allCategorias;
   final ValueChanged<Categoria?> onChanged;
 
   const _CategoryDropdown({
     required this.value,
-    required this.rootLabel,
     required this.categorias,
     required this.allCategorias,
     required this.onChanged,
@@ -313,15 +319,6 @@ class _CategoryDropdown extends StatelessWidget {
   /// Construye la lista plana de todas las categorías con indentación visual.
   List<DropdownMenuItem<Categoria?>> _buildItems() {
     final items = <DropdownMenuItem<Categoria?>>[];
-
-    // Opción raíz
-    items.add(DropdownMenuItem<Categoria?>(
-      value: null,
-      child: Text(
-        rootLabel,
-        style: const TextStyle(fontStyle: FontStyle.italic),
-      ),
-    ));
 
     void addLevel(List<Categoria> cats, int depth) {
       for (final c in cats) {

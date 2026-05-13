@@ -75,6 +75,8 @@ class OpcionProducto {
   final bool predeterminado;
   final bool disponible;
   final int orden;
+  final double suplementoSinIva;
+  final double porcentajeIVA;
 
   OpcionProducto(
       {required this.id,
@@ -83,7 +85,9 @@ class OpcionProducto {
       required this.nombreOpcion,
       required this.predeterminado,
       required this.disponible,
-      required this.orden});
+      required this.orden,
+      this.suplementoSinIva = 0.0,
+      this.porcentajeIVA = 0.0});
 
   factory OpcionProducto.fromJson(Map<String, dynamic> j) => OpcionProducto(
         id: int.parse(j['id_opcion'].toString()),
@@ -93,6 +97,10 @@ class OpcionProducto {
         predeterminado: j['predeterminado'].toString() == '1',
         disponible: j['disponible'].toString() == '1',
         orden: int.parse((j['orden'] ?? 0).toString()),
+        suplementoSinIva:
+            double.tryParse((j['suplemento_sin_iva'] ?? 0).toString()) ?? 0.0,
+        porcentajeIVA:
+            double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0,
       );
 }
 
@@ -105,6 +113,8 @@ class Producto {
   final int idImpresora;
   final bool disponible;
   final int orden;
+  final double baseImponible;
+  final double porcentajeIVA;
 
   Producto(
       {required this.id,
@@ -114,7 +124,9 @@ class Producto {
       this.textoImprimirCliente = '',
       required this.idImpresora,
       required this.disponible,
-      required this.orden});
+      required this.orden,
+      this.baseImponible = 0.0,
+      this.porcentajeIVA = 0.0});
 
   factory Producto.fromJson(Map<String, dynamic> j) => Producto(
         id: int.parse(j['id_producto'].toString()),
@@ -125,6 +137,10 @@ class Producto {
         idImpresora: int.parse((j['id_impresora'] ?? 0).toString()),
         disponible: j['disponible'].toString() == '1',
         orden: int.parse((j['orden'] ?? 0).toString()),
+        baseImponible:
+            double.tryParse((j['base_imponible'] ?? 0).toString()) ?? 0.0,
+        porcentajeIVA:
+            double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0,
       );
 }
 

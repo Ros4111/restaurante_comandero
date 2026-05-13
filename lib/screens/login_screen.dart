@@ -79,6 +79,9 @@ class _LoginScreenState extends State<LoginScreen> {
         orden: 0,
       ));
 
+      // Registro del dispositivo en segundo plano (fire-and-forget)
+      api.registrarDispositivo();
+
       Navigator.pushReplacement(
           context, MaterialPageRoute(builder: (_) => const MesasScreen()));
     } catch (e) {

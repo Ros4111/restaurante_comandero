@@ -83,6 +83,23 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
 
   bool get _valido => widget.grupos.every((g) => _seleccion.containsKey(g.id));
 
+  /// Precio unitario sin IVA = base_imponible + suplementos_sin_iva de opciones no predeterminadas.
+  double get _precioUnitario {
+    double total = widget.producto.baseImponible;
+    for (final entry in _seleccion.entries) {
+      final opcion = entry.value;
+      if (opcion.predeterminado) continue;
+      final opts =
+          widget.catalogo.opcionesDeGrupo(widget.producto.id, entry.key);
+      final match =
+          opts.where((o) => o.nombreOpcion == opcion.nombre).firstOrNull;
+      if (match != null) total += match.suplementoSinIva;
+    }
+    return total;
+  }
+
+  double get _precioTotal => _precioUnitario * _cantidad;
+
   void _confirmar() {
     Navigator.pop(context, {
       'accion': widget.modoEdicion ? 'guardar' : 'anadir',
@@ -116,6 +133,14 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (widget.producto.baseImponible > 0) ...[
+                      const SizedBox(width: 8),
+                      _PrecioBadge(
+                        unitario: _precioUnitario,
+                        total: _precioTotal,
+                        cantidad: _cantidad,
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: _valido ? _confirmar : null,
@@ -286,6 +311,64 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Badge de precio (unitario + total si cantidad > 1) ─────────
+
+class _PrecioBadge extends StatelessWidget {
+  final double unitario;
+  final double total;
+  final int cantidad;
+
+  const _PrecioBadge({
+    required this.unitario,
+    required this.total,
+    required this.cantidad,
+  });
+
+  String _fmt(double v) => '${v.toStringAsFixed(2)} €';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.colorPrimario.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.colorPrimario, width: 1),
+      ),
+      child: cantidad > 1
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _fmt(unitario),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.colorTextoGris,
+                  ),
+                ),
+                Text(
+                  _fmt(total),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.colorPrimario,
+                  ),
+                ),
+              ],
+            )
+          : Text(
+              _fmt(unitario),
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.colorPrimario,
+              ),
+            ),
     );
   }
 }

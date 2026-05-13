@@ -2,6 +2,42 @@
 // backend/api/endpoints/pedidos.php
 declare(strict_types=1);
 
+// ── Calcula el precio sin IVA y el porcentaje de IVA de una línea ────────────
+// base_imponible del producto + suplementos_sin_iva de opciones no predeterminadas
+// Devuelve ['precio' => float, 'porcentaje_IVA' => float]
+function _calcularPrecioLinea(PDO $db, int $idProducto, mixed $opcionesElegidas): array {
+    $stProd = $db->prepare(
+        'SELECT COALESCE(base_imponible, 0), COALESCE(porcentaje_IVA, 0)
+           FROM productos WHERE id_producto = ?'
+    );
+    $stProd->execute([$idProducto]);
+    $row = $stProd->fetch(PDO::FETCH_NUM);
+    $base   = (float)($row[0] ?? 0);
+    $pctIVA = (float)($row[1] ?? 0);
+
+    if (!is_array($opcionesElegidas) || empty($opcionesElegidas)) {
+        return ['precio' => $base, 'porcentaje_IVA' => $pctIVA];
+    }
+
+    $stSupl = $db->prepare(
+        'SELECT COALESCE(suplemento_sin_iva, 0) FROM productos_opciones
+          WHERE id_producto = ? AND id_grupo_opciones = ? AND nombre_opcion = ?'
+    );
+
+    $totalSupl = 0.0;
+    foreach ($opcionesElegidas as $idGrupo => $opcion) {
+        if (!is_array($opcion)) continue;
+        $predeterminado = !empty($opcion['predeterminado']);
+        if ($predeterminado) continue; // solo suplemento en no predeterminadas
+        $nombreOpcion = trim((string)($opcion['nombre'] ?? ''));
+        if ($nombreOpcion === '') continue;
+        $stSupl->execute([$idProducto, (int)$idGrupo, $nombreOpcion]);
+        $totalSupl += (float)($stSupl->fetchColumn() ?? 0);
+    }
+
+    return ['precio' => round($base + $totalSupl, 2), 'porcentaje_IVA' => $pctIVA];
+}
+
 // ── Obtener pedido completo ────────────────────────────────────
 function endpointPedidoGet(array $payload, int $idPedido): void {
     $db = getDB();
@@ -156,18 +192,27 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         }
 
         // ── Insertar nuevas ──────────────────────────────────
-        $maxOrden = _maxOrden($db, $idPedido);
+        $maxOrden   = _maxOrden($db, $idPedido);
+        $horaPedido = !empty($nuevas) ? date('Y-m-d H:i:s') : null;
         $stIns = $db->prepare(
             'INSERT INTO pedido_detalles
              (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden, impreso)
-             VALUES (?,?,?,?,?,?,?,?,0)'
+              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden,
+              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?)'
         );
         foreach ($nuevas as $n) {
             $maxOrden++;
-            $opcionesJson = isset($n['opciones_elegidas'])
-                ? json_encode($n['opciones_elegidas'], JSON_UNESCAPED_UNICODE)
+            $opcionesDecoded = $n['opciones_elegidas'] ?? null;
+            $opcionesJson = $opcionesDecoded !== null
+                ? json_encode($opcionesDecoded, JSON_UNESCAPED_UNICODE)
                 : null;
+            $calc = _calcularPrecioLinea(
+                $db,
+                (int)$n['id_producto'],
+                is_array($opcionesDecoded) ? $opcionesDecoded : []
+            );
+            $impIVALinea = round($calc['precio'] * $calc['porcentaje_IVA'] / 100, 2);
             $stIns->execute([
                 $idPedido,
                 (int)$n['id_producto'],
@@ -177,6 +222,10 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $opcionesJson,
                 $n['texto_imprimir_cocina'] ?? $n['nombre_producto_pantalla'],
                 $maxOrden,
+                $calc['precio'],
+                $calc['porcentaje_IVA'],
+                $impIVALinea,
+                $horaPedido,
             ]);
             $newId = (int)$db->lastInsertId();
             $huboCambios = true;
@@ -218,6 +267,17 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             $db->prepare('DELETE FROM pedido_cabecera WHERE id_pedido = ?')
                ->execute([$idPedido]);
         } else {
+            // Recalcular totales desde los detalles guardados en BD
+            $stTot = $db->prepare(
+                'SELECT COALESCE(SUM(precio_sin_IVA * cantidad), 0)                        AS base_imp,
+                        COALESCE(SUM(precio_sin_IVA * cantidad * porcentaje_IVA / 100), 0) AS imp_iva
+                   FROM pedido_detalles WHERE id_pedido = ?'
+            );
+            $stTot->execute([$idPedido]);
+            $totRow  = $stTot->fetch(PDO::FETCH_ASSOC);
+            $baseImp = round((float)($totRow['base_imp'] ?? 0), 2);
+            $impIVA  = round((float)($totRow['imp_iva']  ?? 0), 2);
+
             // Al guardar con líneas, liberar bloqueo. Solo tocar hora_ultima_accion si hubo cambios.
             if ($huboCambios) {
                 $db->prepare(
@@ -225,17 +285,21 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                         SET hora_ultima_accion = NOW(),
                             id_usuario_bloqueo = 0,
                             terminal_serie_bloqueo = NULL,
-                            nombre_cliente = ?
+                            nombre_cliente = ?,
+                            base_imponible = ?,
+                            importe_IVA    = ?
                       WHERE id_pedido = ?'
-                )->execute([$nombreCliente, $idPedido]);
+                )->execute([$nombreCliente, $baseImp, $impIVA, $idPedido]);
             } else {
                 $db->prepare(
                     'UPDATE pedido_cabecera
                         SET id_usuario_bloqueo = 0,
                             terminal_serie_bloqueo = NULL,
-                            nombre_cliente = ?
+                            nombre_cliente = ?,
+                            base_imponible = ?,
+                            importe_IVA    = ?
                       WHERE id_pedido = ?'
-                )->execute([$nombreCliente, $idPedido]);
+                )->execute([$nombreCliente, $baseImp, $impIVA, $idPedido]);
             }
         }
 

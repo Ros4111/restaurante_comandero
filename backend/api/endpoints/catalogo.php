@@ -65,7 +65,8 @@ function endpointCatalogo(array $payload): void {
 
     $prods = $db->query(
         'SELECT id_producto, nombre_producto_pantalla, id_categoria,
-                texto_imprimir_cocina, id_impresora, disponible, orden
+                texto_imprimir_cocina, id_impresora, disponible, orden,
+                base_imponible, porcentaje_IVA
            FROM productos ORDER BY orden, id_producto'
     )->fetchAll();
 
@@ -78,7 +79,8 @@ function endpointCatalogo(array $payload): void {
     // Opciones
     $opciones = $db->query(
         'SELECT id_opcion, id_producto, id_grupo_opciones,
-                nombre_opcion, predeterminado, disponible, orden
+                nombre_opcion, predeterminado, disponible, orden,
+                suplemento_sin_iva, porcentaje_IVA
            FROM productos_opciones ORDER BY id_producto, id_grupo_opciones, orden'
     )->fetchAll();
 

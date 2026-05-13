@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:battery_plus/battery_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -214,6 +215,48 @@ class ApiService extends ChangeNotifier {
       'password_sha256': _passwordHash(nombreUsuario, password),
     });
     return data;
+  }
+
+  /// Registra o actualiza el dispositivo actual en la tabla `dispositivos`.
+  /// Se llama tras el login; los errores no interrumpen el flujo pero sí se
+  /// imprimen en consola para facilitar el diagnóstico.
+  Future<void> registrarDispositivo() async {
+    try {
+      String idDispositivo = await terminalSerie();
+      String nombreDispositivo = 'Dispositivo desconocido';
+      int? bateria;
+
+      if (!kIsWeb && Platform.isAndroid) {
+        final info = await DeviceInfoPlugin().androidInfo;
+        final fabricante = info.manufacturer.trim();
+        final modelo = info.model.trim();
+        nombreDispositivo =
+            (fabricante.isNotEmpty && !modelo.startsWith(fabricante))
+                ? '$fabricante $modelo'
+                : modelo;
+      }
+
+      try {
+        final batt = Battery();
+        bateria = await batt.batteryLevel;
+      } catch (e) {
+        debugPrint('[dispositivo] No se pudo leer la batería: $e');
+        bateria = null;
+      }
+
+      debugPrint('[dispositivo] Enviando ping — '
+          'id=$idDispositivo  nombre=$nombreDispositivo  bateria=$bateria');
+
+      await _request('POST', '/dispositivos/ping', body: {
+        'id_dispositivo': idDispositivo,
+        'nombre_dispositivo': nombreDispositivo,
+        if (bateria != null) 'bateria': bateria,
+      });
+
+      debugPrint('[dispositivo] Ping OK');
+    } catch (e) {
+      debugPrint('[dispositivo] Error al registrar: $e');
+    }
   }
 
   Future<List<Map<String, dynamic>>> getUsuariosAdmin() async {
@@ -433,8 +476,7 @@ class ApiService extends ChangeNotifier {
   ///   - 'tipo': 'producto' | 'categoria'
   ///   - 'id': int
   ///   - 'orden': int
-  Future<void> reordenarCatalogo(
-      List<Map<String, dynamic>> items) async {
+  Future<void> reordenarCatalogo(List<Map<String, dynamic>> items) async {
     await _request('POST', '/catalogo/reordenar', body: {'items': items});
   }
 }
