@@ -129,6 +129,7 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
   static const _padPieH = EdgeInsets.fromLTRB(16, 6, 6, 10);
   static const _anchoColNombre = 120.0;
   static const _anchoColPrecio = 50.0;
+
   /// Radio del thumb del slider; las columnas se alinean con su recorrido.
   static const _sliderThumbRadius = 12.0;
 
@@ -477,7 +478,7 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
 
   /// Posición horizontal del centro de cada valor del slider (0…N).
   double _centroColumnaSlider(double anchoZona, int indice) {
-    final trackLeft = _sliderThumbRadius;
+    const trackLeft = _sliderThumbRadius;
     final trackWidth = anchoZona - 2 * _sliderThumbRadius;
     return trackLeft + trackWidth * (indice / _numComensales);
   }
@@ -685,63 +686,63 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
   Widget _celdaTotalComensal(int c, List<double> totCols) {
     String fmtEuro(double v) => '${v.toStringAsFixed(2)} €';
     return Container(
-        padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
-        decoration: BoxDecoration(
-          color: c == 0
-              ? Colors.grey[800]
-              : AppTheme.colorPrimario.withValues(alpha: 0.25),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (c == 0)
-              const Text(
-                'Pendiente',
-                style: TextStyle(fontSize: 10, color: Colors.white54),
-              )
-            else
-              InkWell(
-                onTap: () => _editarNombreComensal(c),
-                borderRadius: BorderRadius.circular(4),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 1),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _nombreComensal(c),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white70,
-                          ),
+      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+      decoration: BoxDecoration(
+        color: c == 0
+            ? Colors.grey[800]
+            : AppTheme.colorPrimario.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (c == 0)
+            const Text(
+              'Pendiente',
+              style: TextStyle(fontSize: 10, color: Colors.white54),
+            )
+          else
+            InkWell(
+              onTap: () => _editarNombreComensal(c),
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        _nombreComensal(c),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.white70,
                         ),
                       ),
-                      Icon(
-                        Icons.edit_outlined,
-                        size: 10,
-                        color: Colors.white.withValues(alpha: 0.5),
-                      ),
-                    ],
-                  ),
+                    ),
+                    Icon(
+                      Icons.edit_outlined,
+                      size: 10,
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
+                  ],
                 ),
               ),
-            Text(
-              fmtEuro(totCols[c]),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 11,
-              ),
             ),
-          ],
-        ),
+          Text(
+            fmtEuro(totCols[c]),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
