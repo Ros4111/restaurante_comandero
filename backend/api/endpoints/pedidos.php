@@ -16,7 +16,7 @@ function _calcularPrecioLinea(PDO $db, int $idProducto, mixed $opcionesElegidas)
     $pctIVA = (float)($row[1] ?? 0);
 
     if (!is_array($opcionesElegidas) || empty($opcionesElegidas)) {
-        return ['precio' => $base, 'porcentaje_IVA' => $pctIVA];
+        return ['precio' => round($base, 6), 'porcentaje_IVA' => $pctIVA];
     }
 
     $stSupl = $db->prepare(
@@ -35,7 +35,58 @@ function _calcularPrecioLinea(PDO $db, int $idProducto, mixed $opcionesElegidas)
         $totalSupl += (float)($stSupl->fetchColumn() ?? 0);
     }
 
-    return ['precio' => round($base + $totalSupl, 2), 'porcentaje_IVA' => $pctIVA];
+    return ['precio' => round($base + $totalSupl, 6), 'porcentaje_IVA' => $pctIVA];
+}
+
+/**
+ * Totales de cabecera: PVP unitario a 2 decimales × cantidad (coherente con ticket).
+ */
+function _totalesPedidoDesdeDetalles(PDO $db, int $idPedido): array {
+    $st = $db->prepare(
+        'SELECT precio_sin_IVA, porcentaje_IVA, cantidad FROM pedido_detalles WHERE id_pedido = ?'
+    );
+    $st->execute([$idPedido]);
+    $baseImp = 0.0;
+    $impIVA = 0.0;
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $pu = (float)$row['precio_sin_IVA'];
+        $pct = (float)$row['porcentaje_IVA'];
+        $q = max(0, (int)$row['cantidad']);
+        if ($q <= 0) {
+            continue;
+        }
+        $factor = 1.0 + $pct / 100.0;
+        $pvpUnit = round($pu * $factor, 2);
+        $lineTtc = round($pvpUnit * $q, 2);
+        $baseLine = round($lineTtc / $factor, 2);
+        $ivaLine = round($lineTtc - $baseLine, 2);
+        $baseImp += $baseLine;
+        $impIVA += $ivaLine;
+    }
+
+    return ['base_imponible' => round($baseImp, 2), 'importe_IVA' => round($impIVA, 2)];
+}
+
+/** Textos de producto desde BD (el cliente no debe enviarlos al guardar). */
+function _textosProductoParaPedido(PDO $db, int $idProducto): array {
+    $st = $db->prepare(
+        'SELECT nombre_producto_pantalla, texto_imprimir_cocina FROM productos WHERE id_producto = ?'
+    );
+    $st->execute([$idProducto]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Producto no encontrado: ' . $idProducto);
+    }
+    $nombre = trim((string)($row['nombre_producto_pantalla'] ?? ''));
+    $txtCoc = trim((string)($row['texto_imprimir_cocina'] ?? ''));
+    if ($nombre === '') {
+        $nombre = 'Producto #' . $idProducto;
+    }
+    if ($txtCoc === '') {
+        $txtCoc = $nombre;
+    }
+
+    return ['nombre_producto_pantalla' => $nombre, 'texto_imprimir_cocina' => $txtCoc];
 }
 
 // ── Obtener pedido completo ────────────────────────────────────
@@ -207,20 +258,22 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             $opcionesJson = $opcionesDecoded !== null
                 ? json_encode($opcionesDecoded, JSON_UNESCAPED_UNICODE)
                 : null;
+            $idProdNuevo = (int)$n['id_producto'];
+            $txtProd = _textosProductoParaPedido($db, $idProdNuevo);
             $calc = _calcularPrecioLinea(
                 $db,
-                (int)$n['id_producto'],
+                $idProdNuevo,
                 is_array($opcionesDecoded) ? $opcionesDecoded : []
             );
-            $impIVALinea = round($calc['precio'] * $calc['porcentaje_IVA'] / 100, 2);
+            $impIVALinea = round($calc['precio'] * $calc['porcentaje_IVA'] / 100, 4);
             $stIns->execute([
                 $idPedido,
-                (int)$n['id_producto'],
+                $idProdNuevo,
                 max(1, (int)($n['cantidad'] ?? 1)),
                 trim($n['comentario'] ?? ''),
-                $n['nombre_producto_pantalla'],
+                $txtProd['nombre_producto_pantalla'],
                 $opcionesJson,
-                $n['texto_imprimir_cocina'] ?? $n['nombre_producto_pantalla'],
+                $txtProd['texto_imprimir_cocina'],
                 $maxOrden,
                 $calc['precio'],
                 $calc['porcentaje_IVA'],
@@ -233,15 +286,22 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             _registrarCambio($db, $payload['sub'], 'añadir', [
                 'id_pedido'  => $idPedido,
                 'id_linea'   => $newId,
-                'producto'   => $n['nombre_producto_pantalla'],
+                'producto'   => $txtProd['nombre_producto_pantalla'],
                 'cantidad'   => $n['cantidad'],
             ]);
 
             // Encolar impresión nueva
-            $idImp = _idImpresora($db, (int)$n['id_producto']);
+            $idImp = _idImpresora($db, $idProdNuevo);
             if ($idImp > 0) {
+                $lineaEscPos = [
+                    'cantidad' => max(1, (int)($n['cantidad'] ?? 1)),
+                    'comentario' => trim($n['comentario'] ?? ''),
+                    'opciones_elegidas' => is_array($opcionesDecoded) ? $opcionesDecoded : [],
+                    'nombre_producto_pantalla' => $txtProd['nombre_producto_pantalla'],
+                    'texto_imprimir_cocina' => $txtProd['texto_imprimir_cocina'],
+                ];
                 $trabajosImpresion[$idImp][] = _nuevaLineaEscPos(
-                    $cab['id_mesa'], $n, $payload['name']
+                    $cab['id_mesa'], $lineaEscPos, $payload['name']
                 );
                 // Marcar como impreso
                 $db->prepare('UPDATE pedido_detalles SET impreso=1 WHERE id_linea=?')
@@ -267,16 +327,10 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             $db->prepare('DELETE FROM pedido_cabecera WHERE id_pedido = ?')
                ->execute([$idPedido]);
         } else {
-            // Recalcular totales desde los detalles guardados en BD
-            $stTot = $db->prepare(
-                'SELECT COALESCE(SUM(precio_sin_IVA * cantidad), 0)                        AS base_imp,
-                        COALESCE(SUM(precio_sin_IVA * cantidad * porcentaje_IVA / 100), 0) AS imp_iva
-                   FROM pedido_detalles WHERE id_pedido = ?'
-            );
-            $stTot->execute([$idPedido]);
-            $totRow  = $stTot->fetch(PDO::FETCH_ASSOC);
-            $baseImp = round((float)($totRow['base_imp'] ?? 0), 2);
-            $impIVA  = round((float)($totRow['imp_iva']  ?? 0), 2);
+            // Recalcular totales (PVP unitario a 2 dec. × cantidad, coherente con ticket)
+            $tot = _totalesPedidoDesdeDetalles($db, $idPedido);
+            $baseImp = $tot['base_imponible'];
+            $impIVA  = $tot['importe_IVA'];
 
             // Al guardar con líneas, liberar bloqueo. Solo tocar hora_ultima_accion si hubo cambios.
             if ($huboCambios) {

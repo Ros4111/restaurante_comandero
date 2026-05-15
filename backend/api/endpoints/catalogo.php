@@ -80,7 +80,7 @@ function endpointCatalogo(array $payload): void {
     $opciones = $db->query(
         'SELECT id_opcion, id_producto, id_grupo_opciones,
                 nombre_opcion, predeterminado, disponible, orden,
-                suplemento_sin_iva, porcentaje_IVA
+                suplemento_sin_iva
            FROM productos_opciones ORDER BY id_producto, id_grupo_opciones, orden'
     )->fetchAll();
 

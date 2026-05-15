@@ -465,7 +465,7 @@ class ApiService extends ChangeNotifier {
     required String nombreCliente,
   }) async {
     await _request('POST', '/pedidos/$idPedido/guardar', body: {
-      'lineas': lineas.map((l) => l.toJson()).toList(),
+      'lineas': lineas.map((l) => l.toJsonParaGuardarPedido()).toList(),
       'terminal_serie': await terminalSerie(),
       'nombre_cliente': nombreCliente.trim(),
     });

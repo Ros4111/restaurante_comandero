@@ -1,5 +1,5 @@
 // lib/services/sunmi_service.dart
-// Servicio de impresión por red ESC/POS (TCP 9100).
+// Servicio de impresión por red ESC/POS (TCP 9100) y Bluetooth.
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -8,6 +8,8 @@ import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as im;
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
 import '../models/models.dart';
 import 'package:intl/intl.dart';
@@ -63,33 +65,46 @@ class SunmiService {
         return;
       }
 
-      if (!await _ipDispositivoPermiteImpresionTickets()) {
-        debugPrint(
-          'Impresión ticket POS omitida: la IP del dispositivo no está en 192.168.100.x',
-        );
-        return;
-      }
-
-      // Impresion de red: usar solo ESC/POS (sin SunmiPrinter).
-
+      // Agrupar líneas por impresora
       final grouped = <int, List<LineaPedido>>{};
       for (final l in lineasNuevas) {
         final idImpresora = impresoraPorProducto[l.idProducto] ?? 0;
         grouped.putIfAbsent(idImpresora, () => []).add(l);
       }
 
+      final idsImpresora = grouped.keys.toList()..sort();
+
+      // Líneas destinadas a impresoras Bluetooth (ip == 'bluetooth')
+      final lineasBluetooth = <LineaPedido>[];
+
+      // Impresoras TCP: solo si la IP del dispositivo está en 192.168.100.x
+      final permiteRed = await _ipDispositivoPermiteImpresionTickets();
+      if (!permiteRed) {
+        debugPrint(
+            'Impresión TCP omitida: IP del dispositivo no está en 192.168.100.x');
+      }
+
       final profile = await CapabilityProfile.load();
       final hora = DateFormat('HH:mm').format(DateTime.now());
-      final idsImpresora = grouped.keys.toList()..sort();
 
       for (final idImp in idsImpresora) {
         final cfg = impresorasPorId[idImp];
-        final ip = cfg?.ip?.trim() ?? '';
+        final ip = cfg?.ip?.trim().toLowerCase() ?? '';
+        final nuevasDeImpresora = grouped[idImp] ?? <LineaPedido>[];
+
+        // Impresora Bluetooth: acumular líneas para imprimir por BT
+        if (ip == 'bluetooth') {
+          lineasBluetooth.addAll(nuevasDeImpresora);
+          continue;
+        }
+
+        // Impresora de red TCP
+        if (!permiteRed) continue;
+
         final puerto = cfg?.puerto ?? 0;
         if (ip.isEmpty || puerto <= 0) {
           debugPrint(
-            'Impresora $idImp sin configuración válida en tabla impresoras',
-          );
+              'Impresora $idImp sin configuración válida en tabla impresoras');
           continue;
         }
 
@@ -126,14 +141,10 @@ class SunmiService {
         );
         printer.hr();
 
-        final nuevasDeImpresora = grouped[idImp] ?? <LineaPedido>[];
         for (final l in nuevasDeImpresora) {
-          final lineaTexto =
-              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina);
-
           _printEscPosText(
             printer,
-            lineaTexto,
+            _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina),
             styles: const PosStyles(
               bold: true,
               width: PosTextSize.size1,
@@ -154,11 +165,8 @@ class SunmiService {
 
         if (lineasEliminadas.isNotEmpty) {
           printer.hr();
-          _printEscPosText(
-            printer,
-            'CANCELADO:',
-            styles: const PosStyles(bold: true),
-          );
+          _printEscPosText(printer, 'CANCELADO:',
+              styles: const PosStyles(bold: true));
           for (final l in lineasEliminadas) {
             _printEscPosText(
               printer,
@@ -170,11 +178,8 @@ class SunmiService {
 
         if (lineasMovidas.isNotEmpty) {
           printer.hr();
-          _printEscPosText(
-            printer,
-            'MOVIDO:',
-            styles: const PosStyles(bold: true),
-          );
+          _printEscPosText(printer, 'MOVIDO:',
+              styles: const PosStyles(bold: true));
           for (final l in lineasMovidas) {
             _printEscPosText(
               printer,
@@ -190,8 +195,145 @@ class SunmiService {
         await Future.delayed(const Duration(milliseconds: 900));
         printer.disconnect();
       }
+
+      // Impresión Bluetooth: solo si hay líneas nuevas asignadas a impresoras BT
+      if (lineasBluetooth.isNotEmpty) {
+        await _imprimirEnBluetooth(
+          idMesa: idMesa,
+          camarero: camarero,
+          lineasNuevas: lineasBluetooth,
+          lineasEliminadas: lineasEliminadas,
+          lineasMovidas: lineasMovidas,
+        );
+      }
     } catch (e) {
       debugPrint('Error impresion ESC/POS: $e');
+    }
+  }
+
+  /// Intenta conectar al periférico BT con reintentos.
+  /// Espera [intervaloSegundos] segundos entre cada intento durante un máximo
+  /// de [maxEsperaSegundos] segundos en total. Devuelve true si conecta.
+  static Future<bool> _conectarBluetoothConReintentos(
+    String mac, {
+    int maxEsperaSegundos = 30,
+    int intervaloSegundos = 3,
+  }) async {
+    final deadline = DateTime.now().add(Duration(seconds: maxEsperaSegundos));
+    int intento = 0;
+    while (DateTime.now().isBefore(deadline)) {
+      intento++;
+      debugPrint('BT: intento $intento de conexión a $mac');
+      final ok = await PrintBluetoothThermal.connect(macPrinterAddress: mac);
+      if (ok) return true;
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) break;
+      final espera = remaining < Duration(seconds: intervaloSegundos)
+          ? remaining
+          : Duration(seconds: intervaloSegundos);
+      debugPrint('BT: no conectado, reintentando en ${espera.inSeconds}s…');
+      await Future.delayed(espera);
+    }
+    return false;
+  }
+
+  static Future<void> _imprimirEnBluetooth({
+    required int idMesa,
+    required String camarero,
+    required List<LineaPedido> lineasNuevas,
+    required List<LineaPedido> lineasEliminadas,
+    required List<LineaPedido> lineasMovidas,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mac = prefs.getString('bt_printer_mac') ?? '';
+      if (mac.isEmpty) return;
+
+      final tablaCodigos = prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
+      final papel = prefs.getString('bt_printer_papel') ?? 'mm58';
+      final paperSize = papel == 'mm80' ? PaperSize.mm80 : PaperSize.mm58;
+
+      final connected = await _conectarBluetoothConReintentos(mac);
+      if (!connected) {
+        debugPrint('BT: no se pudo conectar a $mac tras varios intentos');
+        return;
+      }
+
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(paperSize, profile);
+      final hora = DateFormat('HH:mm').format(DateTime.now());
+      final List<int> bytes = [];
+
+      bytes.addAll(generator.reset());
+      bytes.addAll(generator.setGlobalCodeTable(tablaCodigos));
+      bytes.addAll(generator.text(
+        _escPosSafeText('Mesa $idMesa $hora'),
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          width: PosTextSize.size2,
+          height: PosTextSize.size2,
+        ),
+      ));
+      bytes.addAll(generator.text(
+        _escPosSafeText('Le atendió: $camarero'),
+        styles: const PosStyles(align: PosAlign.center),
+      ));
+      bytes.addAll(generator.hr());
+
+      for (final l in lineasNuevas) {
+        bytes.addAll(generator.text(
+          _escPosSafeText(
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina)),
+          styles: const PosStyles(
+            bold: true,
+            width: PosTextSize.size1,
+            height: PosTextSize.size2,
+          ),
+        ));
+        for (final opcion in l.opcionesNoPredeterminadas) {
+          bytes.addAll(generator.text(_escPosSafeText('> $opcion')));
+        }
+        if (l.comentario.trim().isNotEmpty) {
+          bytes.addAll(generator.text(
+            _escPosSafeText('Nota: ${l.comentario}'),
+            styles: const PosStyles(bold: true),
+          ));
+        }
+      }
+
+      if (lineasEliminadas.isNotEmpty) {
+        bytes.addAll(generator.hr());
+        bytes.addAll(generator.text('CANCELADO:',
+            styles: const PosStyles(bold: true)));
+        for (final l in lineasEliminadas) {
+          bytes.addAll(generator.text(_escPosSafeText(
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
+                  sangria: true))));
+        }
+      }
+
+      if (lineasMovidas.isNotEmpty) {
+        bytes.addAll(generator.hr());
+        bytes.addAll(
+            generator.text('MOVIDO:', styles: const PosStyles(bold: true)));
+        for (final l in lineasMovidas) {
+          bytes.addAll(generator.text(_escPosSafeText(
+              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
+                  sangria: true))));
+          bytes.addAll(generator.text(
+              _escPosSafeText('   Mesa $idMesa -> Mesa ${l.moverAMesa}')));
+        }
+      }
+
+      bytes.addAll(generator.feed(3));
+      bytes.addAll(generator.cut());
+
+      await PrintBluetoothThermal.writeBytes(bytes);
+      await Future.delayed(const Duration(milliseconds: 900));
+      await PrintBluetoothThermal.disconnect;
+    } catch (e) {
+      debugPrint('Error impresión BT: $e');
     }
   }
 
@@ -208,6 +350,10 @@ class SunmiService {
   }
 
   /// SUNMI en sentido amplio (impresión integrada), para tickets auxiliares.
+  static Future<bool> dispositivoTieneImpresoraSunmiIntegrada() async {
+    return _esSunmiImpresoraIntegrada();
+  }
+
   static Future<bool> _esSunmiImpresoraIntegrada() async {
     if (!Platform.isAndroid) return false;
     try {
@@ -556,5 +702,119 @@ class SunmiService {
       }
     }
     flushBuffer();
+  }
+
+  /// Ticket de texto (reparto entre comensales, etc.).
+  /// [destino]: `bt` | `sunmi` | `tcp:<ip>:<puerto>` (puerto tras el último `:`).
+  /// Devuelve cadena vacía si todo fue bien, o mensaje de error.
+  static Future<String> imprimirTextoTicket({
+    required List<String> lineas,
+    required String destino,
+  }) async {
+    try {
+      if (destino == 'bt') {
+        return await _imprimirTextoBluetooth(lineas);
+      }
+      if (destino == 'sunmi') {
+        return await _imprimirTextoSunmi(lineas);
+      }
+      if (destino.startsWith('tcp:')) {
+        final rest = destino.substring(4);
+        final colon = rest.lastIndexOf(':');
+        if (colon <= 0) {
+          return 'TCP: formato inválido';
+        }
+        final ip = rest.substring(0, colon);
+        final puerto = int.tryParse(rest.substring(colon + 1)) ?? 0;
+        if (ip.isEmpty || puerto <= 0) {
+          return 'TCP: IP o puerto inválido';
+        }
+        return await _imprimirTextoTcp(lineas, ip, puerto);
+      }
+      return 'Destino de impresión no reconocido';
+    } catch (e) {
+      return 'Error: $e';
+    }
+  }
+
+  static Future<String> _imprimirTextoBluetooth(List<String> lineas) async {
+    final prefs = await SharedPreferences.getInstance();
+    final mac = prefs.getString('bt_printer_mac') ?? '';
+    if (mac.isEmpty) {
+      return 'No hay impresora Bluetooth configurada';
+    }
+
+    final tablaCodigos = prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
+    final papel = prefs.getString('bt_printer_papel') ?? 'mm58';
+    final paperSize = papel == 'mm80' ? PaperSize.mm80 : PaperSize.mm58;
+
+    final connected = await _conectarBluetoothConReintentos(mac);
+    if (!connected) {
+      return 'No se pudo conectar por Bluetooth';
+    }
+
+    final profile = await CapabilityProfile.load();
+    final generator = Generator(paperSize, profile);
+    final bytes = <int>[];
+    bytes.addAll(generator.reset());
+    bytes.addAll(generator.setGlobalCodeTable(tablaCodigos));
+    for (final line in lineas) {
+      bytes.addAll(generator.text(_escPosSafeText(line)));
+    }
+    bytes.addAll(generator.feed(3));
+    bytes.addAll(generator.cut());
+    await PrintBluetoothThermal.writeBytes(bytes);
+    await Future.delayed(const Duration(milliseconds: 900));
+    try {
+      await PrintBluetoothThermal.disconnect;
+    } catch (_) {}
+    return '';
+  }
+
+  static Future<String> _imprimirTextoTcp(
+    List<String> lineas,
+    String ip,
+    int puerto,
+  ) async {
+    if (!await _ipDispositivoPermiteImpresionTickets()) {
+      return 'La impresora TCP solo está disponible en la red 192.168.100.x';
+    }
+    final profile = await CapabilityProfile.load();
+    final printer = NetworkPrinter(PaperSize.mm80, profile);
+    final result = await printer.connect(
+      ip,
+      port: puerto,
+      timeout: const Duration(seconds: 8),
+    );
+    if (result != PosPrintResult.success) {
+      return 'Error al conectar ($result)';
+    }
+    printer.setGlobalCodeTable('CP1252');
+    for (final line in lineas) {
+      _printEscPosText(printer, line);
+    }
+    printer.feed(3);
+    printer.cut();
+    await Future.delayed(const Duration(milliseconds: 900));
+    printer.disconnect();
+    return '';
+  }
+
+  static Future<String> _imprimirTextoSunmi(List<String> lineas) async {
+    if (!await _esSunmiImpresoraIntegrada()) {
+      return 'Este dispositivo no tiene impresora SUNMI integrada';
+    }
+    for (final line in lineas) {
+      await SunmiPrinter.printText(
+        line,
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.LEFT,
+          fontSize: 22,
+        ),
+      );
+    }
+    await SunmiPrinter.lineWrap(2);
+    await SunmiPrinter.cutPaper();
+    return '';
   }
 }

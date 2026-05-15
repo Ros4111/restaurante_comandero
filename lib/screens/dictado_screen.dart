@@ -97,9 +97,11 @@ class _DictadoScreenState extends State<DictadoScreen>
     await _speech.listen(
       onResult: _onResultado,
       localeId: 'es_ES',
-      listenMode: ListenMode.dictation,
-      cancelOnError: false,
-      partialResults: true,
+      listenOptions: SpeechListenOptions(
+        listenMode: ListenMode.dictation,
+        cancelOnError: false,
+        partialResults: true,
+      ),
     );
     if (mounted) setState(() => _escuchando = true);
     _pulseCtrl.repeat(reverse: true);

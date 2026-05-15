@@ -17,20 +17,17 @@ class _FilaOpcionEdit {
     String nombre = '',
     String orden = '',
     String suplementoSinIva = '',
-    String porcentajeIVA = '',
     this.predeterminado = false,
     this.disponible = true,
   })  : nombre = TextEditingController(text: nombre),
         orden = TextEditingController(text: orden),
-        suplementoSinIva = TextEditingController(text: suplementoSinIva),
-        porcentajeIVA = TextEditingController(text: porcentajeIVA);
+        suplementoSinIva = TextEditingController(text: suplementoSinIva);
 
   final int? idOpcion;
   int idGrupo;
   final TextEditingController nombre;
   final TextEditingController orden;
   final TextEditingController suplementoSinIva;
-  final TextEditingController porcentajeIVA;
   bool predeterminado;
   bool disponible;
 
@@ -38,7 +35,6 @@ class _FilaOpcionEdit {
     nombre.dispose();
     orden.dispose();
     suplementoSinIva.dispose();
-    porcentajeIVA.dispose();
   }
 
   Map<String, dynamic> toJsonBody() => {
@@ -47,10 +43,9 @@ class _FilaOpcionEdit {
         'predeterminado': predeterminado,
         'disponible': disponible,
         'orden': int.tryParse(orden.text.trim()) ?? 0,
-        'suplemento_sin_iva':
-            double.tryParse(suplementoSinIva.text.trim().replaceAll(',', '.')) ?? 0.0,
-        'porcentaje_IVA':
-            double.tryParse(porcentajeIVA.text.trim().replaceAll(',', '.')) ?? 0.0,
+        'suplemento_sin_iva': double.tryParse(
+                suplementoSinIva.text.trim().replaceAll(',', '.')) ??
+            0.0,
       };
 }
 
@@ -68,6 +63,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   final _ordenCtrl = TextEditingController();
   final _baseImponibleCtrl = TextEditingController();
   final _porcentajeIVACtrl = TextEditingController();
+  final _pvpCtrl = TextEditingController();
+  bool _actualizandoPrecio = false;
   final _buscarCtrl = TextEditingController();
 
   int? _id;
@@ -79,17 +76,56 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   int? _grupoParaNuevaFila;
 
   List<Map<String, dynamic>> _listaBusqueda = [];
+  String _campoBusqueda = 'todo'; // 'todo' | 'pantalla' | 'barra' | 'cliente'
+  int? _idCategoriaFiltro; // null = todas
   Timer? _debounceBuscar;
   bool _cargandoLista = false;
   bool _guardando = false;
   String? _error;
+
+  List<Map<String, dynamic>> get _listaFiltrada {
+    final q = _buscarCtrl.text.trim().toLowerCase();
+    return _listaBusqueda.where((r) {
+      // Filtro por categoría
+      if (_idCategoriaFiltro != null) {
+        final idCat = int.tryParse(r['id_categoria'].toString());
+        if (idCat != _idCategoriaFiltro) return false;
+      }
+      // Filtro de texto por campo
+      if (q.isEmpty) return true;
+      switch (_campoBusqueda) {
+        case 'pantalla':
+          return (r['nombre_producto_pantalla']?.toString() ?? '')
+              .toLowerCase()
+              .contains(q);
+        case 'barra':
+          return (r['texto_imprimir_cocina']?.toString() ?? '')
+              .toLowerCase()
+              .contains(q);
+        case 'cliente':
+          return (r['texto_imprimir_cliente']?.toString() ?? '')
+              .toLowerCase()
+              .contains(q);
+        default:
+          return (r['nombre_producto_pantalla']?.toString() ?? '')
+                  .toLowerCase()
+                  .contains(q) ||
+              (r['texto_imprimir_cocina']?.toString() ?? '')
+                  .toLowerCase()
+                  .contains(q) ||
+              (r['texto_imprimir_cliente']?.toString() ?? '')
+                  .toLowerCase()
+                  .contains(q);
+      }
+    }).toList();
+  }
 
   @override
   void initState() {
     super.initState();
     _aplicarDefaultsCatalogo();
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => _refrescarListaBusqueda(''));
+        .addPostFrameCallback((_) => _refrescarListaBusqueda());
   }
 
   void _aplicarDefaultsCatalogo() {
@@ -126,6 +162,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     _ordenCtrl.dispose();
     _baseImponibleCtrl.dispose();
     _porcentajeIVACtrl.dispose();
+    _pvpCtrl.dispose();
     _buscarCtrl.dispose();
     super.dispose();
   }
@@ -140,6 +177,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       _ordenCtrl.clear();
       _baseImponibleCtrl.clear();
       _porcentajeIVACtrl.clear();
+      _pvpCtrl.clear();
       _disponible = true;
       _error = null;
     });
@@ -162,8 +200,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       if (idGrupoDefecto != null && !idsValidos.contains(idG)) {
         idG = idGrupoDefecto;
       }
-      final suplRaw   = double.tryParse((m['suplemento_sin_iva'] ?? 0).toString()) ?? 0.0;
-      final pctIVARaw = double.tryParse((m['porcentaje_IVA']    ?? 0).toString()) ?? 0.0;
+      final suplRaw =
+          double.tryParse((m['suplemento_sin_iva'] ?? 0).toString()) ?? 0.0;
       _filasOpciones.add(_FilaOpcionEdit(
         idOpcion: m['id_opcion'] != null
             ? int.tryParse(m['id_opcion'].toString())
@@ -171,22 +209,21 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         idGrupo: idG,
         nombre: m['nombre_opcion']?.toString() ?? '',
         orden: (m['orden'] ?? '').toString(),
-        suplementoSinIva: suplRaw   == 0.0 ? '' : suplRaw.toStringAsFixed(2),
-        porcentajeIVA:    pctIVARaw == 0.0 ? '' : pctIVARaw.toStringAsFixed(2),
+        suplementoSinIva: suplRaw == 0.0 ? '' : suplRaw.toStringAsFixed(2),
         predeterminado: m['predeterminado'].toString() == '1',
         disponible: m['disponible'].toString() == '1',
       ));
     }
   }
 
-  Future<void> _refrescarListaBusqueda(String q) async {
+  Future<void> _refrescarListaBusqueda() async {
     setState(() {
       _cargandoLista = true;
       _error = null;
     });
     final api = context.read<ApiService>();
     try {
-      final rows = await api.getProductosLista(q: q.isEmpty ? null : q);
+      final rows = await api.getProductosLista();
       if (!mounted) return;
       setState(() {
         _listaBusqueda = rows;
@@ -203,8 +240,8 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
 
   void _onBuscarChanged(String v) {
     _debounceBuscar?.cancel();
-    _debounceBuscar = Timer(const Duration(milliseconds: 350), () {
-      _refrescarListaBusqueda(v.trim());
+    _debounceBuscar = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) setState(() {});
     });
   }
 
@@ -229,9 +266,11 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         final pctIVAVal =
             double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0;
         _baseImponibleCtrl.text =
-            baseImpVal == 0.0 ? '' : baseImpVal.toStringAsFixed(2);
+            baseImpVal == 0.0 ? '' : baseImpVal.toStringAsFixed(4);
         _porcentajeIVACtrl.text =
             pctIVAVal == 0.0 ? '' : pctIVAVal.toStringAsFixed(2);
+        final pvpVal = baseImpVal * (1 + pctIVAVal / 100);
+        _pvpCtrl.text = pvpVal == 0.0 ? '' : pvpVal.toStringAsFixed(2);
         _idCategoria = int.tryParse(j['id_categoria'].toString());
         _idImpresora = int.tryParse((j['id_impresora'] ?? 0).toString());
         _disponible = j['disponible'].toString() == '1';
@@ -291,6 +330,43 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       fila.idGrupo = nuevoGrupo;
       fila.predeterminado = false;
     });
+  }
+
+  double get _pctIVA =>
+      double.tryParse(_porcentajeIVACtrl.text.trim().replaceAll(',', '.')) ??
+      0.0;
+
+  void _onBaseImponibleChanged(String _) {
+    if (_actualizandoPrecio) return;
+    final base =
+        double.tryParse(_baseImponibleCtrl.text.trim().replaceAll(',', '.')) ??
+            0.0;
+    final pvp = base * (1 + _pctIVA / 100);
+    _actualizandoPrecio = true;
+    _pvpCtrl.text = pvp == 0.0 ? '' : pvp.toStringAsFixed(2);
+    _actualizandoPrecio = false;
+  }
+
+  void _onPvpChanged(String _) {
+    if (_actualizandoPrecio) return;
+    final pvp =
+        double.tryParse(_pvpCtrl.text.trim().replaceAll(',', '.')) ?? 0.0;
+    final divisor = 1 + _pctIVA / 100;
+    final base = divisor > 0 ? pvp / divisor : 0.0;
+    _actualizandoPrecio = true;
+    _baseImponibleCtrl.text = base == 0.0 ? '' : base.toStringAsFixed(4);
+    _actualizandoPrecio = false;
+  }
+
+  void _onPctIVAChanged(String _) {
+    if (_actualizandoPrecio) return;
+    final base =
+        double.tryParse(_baseImponibleCtrl.text.trim().replaceAll(',', '.')) ??
+            0.0;
+    final pvp = base * (1 + _pctIVA / 100);
+    _actualizandoPrecio = true;
+    _pvpCtrl.text = pvp == 0.0 ? '' : pvp.toStringAsFixed(2);
+    _actualizandoPrecio = false;
   }
 
   Map<String, dynamic> _bodyParaApi() {
@@ -364,7 +440,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         await _cargarProducto(_id!);
       }
       await _recargarCatalogo();
-      await _refrescarListaBusqueda(_buscarCtrl.text.trim());
+      await _refrescarListaBusqueda();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -411,7 +487,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       );
       _nuevoProducto();
       await _recargarCatalogo();
-      await _refrescarListaBusqueda(_buscarCtrl.text.trim());
+      await _refrescarListaBusqueda();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -466,7 +542,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
         ),
       );
       await _recargarCatalogo();
-      await _refrescarListaBusqueda(_buscarCtrl.text.trim());
+      await _refrescarListaBusqueda();
       await _cargarProducto(nuevoId);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -600,7 +676,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                 isDense: true,
               ),
             ),
-                const SizedBox(height: 8),
+            const SizedBox(height: 8),
             Row(
               children: [
                 SizedBox(
@@ -621,29 +697,13 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                   child: TextField(
                     controller: f.suplementoSinIva,
                     enabled: !_guardando,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Suplem. s/IVA €',
                       hintText: '0.00',
                       isDense: true,
                       prefixIcon: Icon(Icons.euro_outlined, size: 16),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                SizedBox(
-                  width: 72,
-                  child: TextField(
-                    controller: f.porcentajeIVA,
-                    enabled: !_guardando,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: '% IVA',
-                      hintText: '0',
-                      isDense: true,
-                      suffixText: '%',
                     ),
                   ),
                 ),
@@ -712,16 +772,64 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
               onChanged: _onBuscarChanged,
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final entry in const {
+                          'todo': 'Todo',
+                          'pantalla': 'Pantalla',
+                          'barra': 'Barra',
+                          'cliente': 'Cliente',
+                        }.entries)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(entry.value),
+                              selected: _campoBusqueda == entry.key,
+                              onSelected: (_) =>
+                                  setState(() => _campoBusqueda = entry.key),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                DropdownButton<int?>(
+                  value: _idCategoriaFiltro,
+                  isDense: true,
+                  underline: const SizedBox.shrink(),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    ...cats.map((c) => DropdownMenuItem(
+                          value: c.id,
+                          child: Text(
+                            c.nombre,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                  ],
+                  onChanged: (v) => setState(() => _idCategoriaFiltro = v),
+                ),
+              ],
+            ),
+          ),
           SizedBox(
-            height: 160,
+            height: 148,
             child: _cargandoLista
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: _listaBusqueda.length,
+                    itemCount: _listaFiltrada.length,
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (ctx, i) {
-                      final r = _listaBusqueda[i];
+                      final r = _listaFiltrada[i];
                       final catalogo = context.read<CatalogoProvider>();
                       final nom =
                           r['nombre_producto_pantalla']?.toString() ?? '';
@@ -850,30 +958,57 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: _baseImponibleCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Base imponible (€)',
-                    hintText: '0.00',
-                    filled: true,
-                    fillColor: AppTheme.colorSuperficie,
-                    prefixIcon: Icon(Icons.euro_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _porcentajeIVACtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: '% IVA',
-                    hintText: '0.00',
-                    filled: true,
-                    fillColor: AppTheme.colorSuperficie,
-                    suffixText: '%',
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _baseImponibleCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Base s/IVA',
+                          hintText: '0.00',
+                          filled: true,
+                          fillColor: AppTheme.colorSuperficie,
+                          prefixIcon: Icon(Icons.euro_outlined),
+                        ),
+                        onChanged: _onBaseImponibleChanged,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 90,
+                      child: TextField(
+                        controller: _porcentajeIVACtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: '% IVA',
+                          hintText: '0',
+                          filled: true,
+                          fillColor: AppTheme.colorSuperficie,
+                          suffixText: '%',
+                        ),
+                        onChanged: _onPctIVAChanged,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _pvpCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'PVP',
+                          hintText: '0.00',
+                          filled: true,
+                          fillColor: AppTheme.colorSuperficie,
+                          prefixIcon: Icon(Icons.euro_outlined),
+                        ),
+                        onChanged: _onPvpChanged,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 SwitchListTile(

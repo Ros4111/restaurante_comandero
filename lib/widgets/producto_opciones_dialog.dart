@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/models.dart';
 import '../services/catalogo_provider.dart';
+import '../utils/precio_redondeo.dart';
 import '../utils/theme.dart';
 
 class ProductoOpcionesDialog extends StatefulWidget {
@@ -83,9 +84,9 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
 
   bool get _valido => widget.grupos.every((g) => _seleccion.containsKey(g.id));
 
-  /// Precio unitario sin IVA = base_imponible + suplementos_sin_iva de opciones no predeterminadas.
+  /// PVP unitario (IVA incl.) a céntimos, coherente con totales del pedido.
   double get _precioUnitario {
-    double total = widget.producto.baseImponible;
+    final supl = <double>[];
     for (final entry in _seleccion.entries) {
       final opcion = entry.value;
       if (opcion.predeterminado) continue;
@@ -93,12 +94,20 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
           widget.catalogo.opcionesDeGrupo(widget.producto.id, entry.key);
       final match =
           opts.where((o) => o.nombreOpcion == opcion.nombre).firstOrNull;
-      if (match != null) total += match.suplementoSinIva;
+      if (match != null) supl.add(match.suplementoSinIva);
     }
-    return total;
+    final baseUnit = baseImponibleUnitariaProductoLinea(
+      baseImponibleProducto: widget.producto.baseImponible,
+      suplementosSinIvaNoPredeterminados: supl,
+    );
+    return pvpUnitarioDesdeBaseSinIva(
+      baseSinIvaUnitaria: baseUnit,
+      porcentajeIva: widget.producto.porcentajeIVA,
+    );
   }
 
-  double get _precioTotal => _precioUnitario * _cantidad;
+  double get _precioTotal =>
+      importeTtcLinea(pvpUnitario: _precioUnitario, cantidad: _cantidad);
 
   void _confirmar() {
     Navigator.pop(context, {

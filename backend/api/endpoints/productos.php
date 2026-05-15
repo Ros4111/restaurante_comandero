@@ -17,8 +17,8 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
     $ins = $db->prepare(
         'INSERT INTO productos_opciones
          (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
-          suplemento_sin_iva, porcentaje_IVA)
-         VALUES (?,?,?,?,?,?,?,?)'
+          suplemento_sin_iva)
+         VALUES (?,?,?,?,?,?,?)'
     );
     $ordenAuto = [];
     $yaPredeterminado = [];
@@ -46,9 +46,8 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
             $ordenAuto[$idGr] = ($ordenAuto[$idGr] ?? 0) + 1;
             $ord = $ordenAuto[$idGr];
         }
-        $supl    = round((float)($o['suplemento_sin_iva'] ?? 0), 2);
-        $pctIVA  = round((float)($o['porcentaje_IVA']    ?? 0), 2);
-        $ins->execute([$idProducto, $idGr, $nom, $pred, $disp, $ord, $supl, $pctIVA]);
+        $supl = round((float)($o['suplemento_sin_iva'] ?? 0), 4);
+        $ins->execute([$idProducto, $idGr, $nom, $pred, $disp, $ord, $supl]);
     }
 }
 
@@ -98,7 +97,7 @@ function endpointProductoGet(array $payload, int $id): void {
 
     $stOp = $db->prepare(
         'SELECT id_opcion, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
-                suplemento_sin_iva, porcentaje_IVA
+                suplemento_sin_iva
            FROM productos_opciones
           WHERE id_producto = ?
        ORDER BY id_grupo_opciones, orden, id_opcion'
@@ -121,7 +120,7 @@ function endpointProductoCrear(array $payload): void {
     $idImp        = (int)($body['id_impresora'] ?? 0);
     $disp         = (int)!empty($body['disponible']);
     $orden        = (int)($body['orden'] ?? 0);
-    $baseImp      = round((float)($body['base_imponible'] ?? 0), 2);
+    $baseImp      = round((float)($body['base_imponible'] ?? 0), 4);
     $pctIVA       = round((float)($body['porcentaje_IVA']  ?? 0), 2);
 
     $db = getDB();
@@ -166,7 +165,7 @@ function endpointProductoActualizar(array $payload, int $id): void {
     $idImp        = (int)($body['id_impresora'] ?? 0);
     $disp         = (int)!empty($body['disponible']);
     $orden        = (int)($body['orden'] ?? 0);
-    $baseImp      = round((float)($body['base_imponible'] ?? 0), 2);
+    $baseImp      = round((float)($body['base_imponible'] ?? 0), 4);
     $pctIVA       = round((float)($body['porcentaje_IVA']  ?? 0), 2);
 
     $db = getDB();
@@ -277,7 +276,7 @@ function endpointProductoCopiar(array $payload): void {
 
         $op = $db->prepare(
             'SELECT id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
-                    suplemento_sin_iva, porcentaje_IVA
+                    suplemento_sin_iva
                FROM productos_opciones WHERE id_producto = ?'
         );
         $op->execute([$idO]);
@@ -287,8 +286,8 @@ function endpointProductoCopiar(array $payload): void {
             $insOp = $db->prepare(
                 'INSERT INTO productos_opciones
                  (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
-                  suplemento_sin_iva, porcentaje_IVA)
-                 VALUES (?,?,?,?,?,?,?,?)'
+                  suplemento_sin_iva)
+                 VALUES (?,?,?,?,?,?,?)'
             );
             foreach ($opts as $r) {
                 $insOp->execute([
@@ -299,7 +298,6 @@ function endpointProductoCopiar(array $payload): void {
                     (int)$r['disponible'],
                     (int)$r['orden'],
                     (float)($r['suplemento_sin_iva'] ?? 0),
-                    (float)($r['porcentaje_IVA']     ?? 0),
                 ]);
             }
         }

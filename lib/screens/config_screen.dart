@@ -1,6 +1,7 @@
 // lib/screens/config_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,6 +32,13 @@ class _ConfigScreenState extends State<ConfigScreen> {
   String? _error;
   IconData? _errorIcon;
 
+  // Bluetooth printer state
+  String _btMac = '';
+  String _btName = '';
+  final _btTablaCtrl = TextEditingController(text: 'CP1252');
+  String _btPapel = 'mm58';
+  bool _btEscaneando = false;
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +48,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _btTablaCtrl.dispose();
     for (final imp in _impresoras) {
       imp.dispose();
     }
@@ -54,6 +63,11 @@ class _ConfigScreenState extends State<ConfigScreen> {
     }
     if (!mounted) return;
     if (widget.showPrinterConfig) {
+      _btMac = prefs.getString('bt_printer_mac') ?? '';
+      _btName = prefs.getString('bt_printer_name') ?? '';
+      _btTablaCtrl.text =
+          prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
+      _btPapel = prefs.getString('bt_printer_papel') ?? 'mm58';
       await _cargarImpresoras();
     }
   }
@@ -120,7 +134,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
       for (final imp in _impresoras) {
         if (int.tryParse(imp.puertoCtrl.text.trim()) == null) {
           setState(() {
-            _error = 'El puerto de "${imp.nombreCtrl.text.trim()}" no es válido.';
+            _error =
+                'El puerto de "${imp.nombreCtrl.text.trim()}" no es válido.';
             _errorIcon = Icons.warning_amber_rounded;
           });
           return;
@@ -133,6 +148,16 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _error = null;
       _errorIcon = null;
     });
+
+    // Guardar config BT localmente (no depende del servidor)
+    if (widget.showPrinterConfig) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('bt_printer_mac', _btMac);
+      await prefs.setString('bt_printer_name', _btName);
+      await prefs.setString(
+          'bt_printer_tabla_codigos', _btTablaCtrl.text.trim().toUpperCase());
+      await prefs.setString('bt_printer_papel', _btPapel);
+    }
 
     // 1. Comprobar internet primero
     final internet = await _hayInternet();
@@ -163,7 +188,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                       'nombre': e.nombreCtrl.text.trim(),
                       'ip': e.ipCtrl.text.trim(),
                       'puerto': int.parse(e.puertoCtrl.text.trim()),
-                      'tabla_codigos': e.tablaCodigosCtrl.text.trim().toUpperCase(),
+                      'tabla_codigos':
+                          e.tablaCodigosCtrl.text.trim().toUpperCase(),
                     })
                 .toList(),
           );
@@ -270,6 +296,80 @@ class _ConfigScreenState extends State<ConfigScreen> {
     }
   }
 
+  Future<void> _escanearBluetooth() async {
+    setState(() => _btEscaneando = true);
+    try {
+      final granted = await PrintBluetoothThermal.isPermissionBluetoothGranted;
+      if (!granted) {
+        if (mounted) {
+          setState(() {
+            _error =
+                'Permiso Bluetooth no concedido. Actívalo en Ajustes > Aplicaciones.';
+            _errorIcon = Icons.bluetooth_disabled;
+          });
+        }
+        return;
+      }
+      final btOn = await PrintBluetoothThermal.bluetoothEnabled;
+      if (!btOn) {
+        if (mounted) {
+          setState(() {
+            _error =
+                'El Bluetooth está desactivado. Actívalo e inténtalo de nuevo.';
+            _errorIcon = Icons.bluetooth_disabled;
+          });
+        }
+        return;
+      }
+      final devices = await PrintBluetoothThermal.pairedBluetooths;
+      if (!mounted) return;
+      if (devices.isEmpty) {
+        setState(() {
+          _error =
+              'No hay dispositivos Bluetooth emparejados. Empareja la impresora en los ajustes del sistema.';
+          _errorIcon = Icons.bluetooth_searching;
+        });
+        return;
+      }
+      final seleccionado = await showDialog<BluetoothInfo>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Seleccionar impresora Bluetooth'),
+          children: devices
+              .map(
+                (d) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, d),
+                  child: ListTile(
+                    leading: const Icon(Icons.print),
+                    title: Text(d.name),
+                    subtitle: Text(d.macAdress),
+                    dense: true,
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      );
+      if (seleccionado != null && mounted) {
+        setState(() {
+          _btMac = seleccionado.macAdress;
+          _btName = seleccionado.name;
+          _error = null;
+          _errorIcon = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Error al escanear Bluetooth: $e';
+          _errorIcon = Icons.bluetooth_disabled;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _btEscaneando = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -285,7 +385,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.settings, color: AppTheme.colorPrimario, size: 56),
+                const Icon(Icons.settings,
+                    color: AppTheme.colorPrimario, size: 56),
                 const SizedBox(height: 16),
                 Text(
                   widget.showUrlConfig && widget.showPrinterConfig
@@ -293,7 +394,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                       : widget.showUrlConfig
                           ? 'Configurar URL'
                           : 'Configurar Impresoras',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 24),
                 if (widget.showUrlConfig) ...[
@@ -304,7 +406,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                       labelText: 'URL del servidor (HTTPS)',
                       filled: true,
                       fillColor: AppTheme.colorSuperficie,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
                       hintText: 'https://192.168.1.x',
                     ),
                     keyboardType: TextInputType.url,
@@ -315,23 +418,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
                 if (widget.showPrinterConfig) ...[
                   Row(
                     children: [
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: ElevatedButton.icon(
-                            onPressed: _loadingImpresoras ? null : _cargarImpresoras,
-                            icon: _loadingImpresoras
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.refresh),
-                            label: const Text('Cargar impresoras del servidor'),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         onPressed: _loadingImpresoras ? null : _crearImpresora,
                         icon: const Icon(Icons.add),
@@ -361,6 +447,22 @@ class _ConfigScreenState extends State<ConfigScreen> {
                         style: TextStyle(color: AppTheme.colorTextoGris),
                       ),
                     ),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  _BluetoothPrinterCard(
+                    mac: _btMac,
+                    name: _btName,
+                    tablaCtrl: _btTablaCtrl,
+                    papel: _btPapel,
+                    escaneando: _btEscaneando,
+                    onScanPressed: _escanearBluetooth,
+                    onClear: () => setState(() {
+                      _btMac = '';
+                      _btName = '';
+                    }),
+                    onPapelChanged: (v) => setState(() => _btPapel = v),
+                  ),
                 ],
                 if (_error != null) ...[
                   const SizedBox(height: 14),
@@ -369,7 +471,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     decoration: BoxDecoration(
                       color: Colors.red[900]!.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppTheme.colorAcento.withValues(alpha: 0.6)),
+                      border: Border.all(
+                          color: AppTheme.colorAcento.withValues(alpha: 0.6)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -444,13 +547,15 @@ class _ImpresoraFormData {
     required this.tablaCodigosCtrl,
   });
 
-  factory _ImpresoraFormData.fromJson(Map<String, dynamic> j) => _ImpresoraFormData(
+  factory _ImpresoraFormData.fromJson(Map<String, dynamic> j) =>
+      _ImpresoraFormData(
         id: int.parse((j['id_impresora'] ?? 0).toString()),
         nombreCtrl: TextEditingController(text: j['nombre']?.toString() ?? ''),
         ipCtrl: TextEditingController(text: j['ip']?.toString() ?? ''),
-        puertoCtrl: TextEditingController(text: (j['puerto'] ?? 9100).toString()),
-        tablaCodigosCtrl:
-            TextEditingController(text: j['tabla_codigos']?.toString() ?? 'CP1252'),
+        puertoCtrl:
+            TextEditingController(text: (j['puerto'] ?? 9100).toString()),
+        tablaCodigosCtrl: TextEditingController(
+            text: j['tabla_codigos']?.toString() ?? 'CP1252'),
       );
 
   void dispose() {
@@ -458,6 +563,119 @@ class _ImpresoraFormData {
     ipCtrl.dispose();
     puertoCtrl.dispose();
     tablaCodigosCtrl.dispose();
+  }
+}
+
+class _BluetoothPrinterCard extends StatelessWidget {
+  final String mac;
+  final String name;
+  final TextEditingController tablaCtrl;
+  final String papel;
+  final bool escaneando;
+  final VoidCallback onScanPressed;
+  final VoidCallback onClear;
+  final ValueChanged<String> onPapelChanged;
+
+  const _BluetoothPrinterCard({
+    required this.mac,
+    required this.name,
+    required this.tablaCtrl,
+    required this.papel,
+    required this.escaneando,
+    required this.onScanPressed,
+    required this.onClear,
+    required this.onPapelChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final conectada = mac.isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.colorSuperficie.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: conectada
+              ? Colors.blueAccent.withValues(alpha: 0.6)
+              : Colors.transparent,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bluetooth,
+                  color:
+                      conectada ? Colors.blueAccent : AppTheme.colorTextoGris,
+                  size: 20),
+              const SizedBox(width: 8),
+              const Text('Impresora Bluetooth',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              if (conectada)
+                IconButton(
+                  tooltip: 'Quitar impresora Bluetooth',
+                  onPressed: onClear,
+                  icon: const Icon(Icons.clear,
+                      color: Colors.redAccent, size: 20),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (conectada) ...[
+            Text(name,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w500, fontSize: 15)),
+            Text(mac,
+                style: const TextStyle(
+                    color: AppTheme.colorTextoGris, fontSize: 12)),
+            const SizedBox(height: 12),
+          ] else
+            const Text('Sin dispositivo seleccionado.',
+                style: TextStyle(color: AppTheme.colorTextoGris)),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            onPressed: escaneando ? null : onScanPressed,
+            icon: escaneando
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.bluetooth_searching),
+            label: Text(
+                conectada ? 'Cambiar dispositivo' : 'Seleccionar dispositivo'),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: tablaCtrl,
+                  decoration: const InputDecoration(labelText: 'Tabla códigos'),
+                  textCapitalization: TextCapitalization.characters,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: papel,
+                  decoration: const InputDecoration(labelText: 'Ancho papel'),
+                  items: const [
+                    DropdownMenuItem(value: 'mm58', child: Text('58 mm')),
+                    DropdownMenuItem(value: 'mm80', child: Text('80 mm')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) onPapelChanged(v);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -25,6 +25,7 @@ class _MesasScreenState extends State<MesasScreen> {
   List<MesaResumen> _mesas = [];
   bool _loading = true;
   bool _fabVisible = true;
+  bool _cargandoMesa = false;
   Timer? _refreshTimer;
   String _version = '';
   String? _terminalSerie;
@@ -185,6 +186,7 @@ class _MesasScreenState extends State<MesasScreen> {
 
   void _navPedido(int idPedido, int idMesa,
       {required bool bloqueadoPorMi, String? bloqueador}) {
+    setState(() => _cargandoMesa = true);
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -196,7 +198,7 @@ class _MesasScreenState extends State<MesasScreen> {
         ),
       ),
     ).then((_) {
-      if (mounted) setState(() => _fabVisible = true);
+      if (mounted) setState(() { _fabVisible = true; _cargandoMesa = false; });
       _cargar();
     });
   }
@@ -314,7 +316,7 @@ class _MesasScreenState extends State<MesasScreen> {
                             child: _MesaTile(
                               mesa: m,
                               terminalSerieActual: _terminalSerie,
-                              onTap: () => _entrarMesa(m),
+                              onTap: _cargandoMesa ? null : () => _entrarMesa(m),
                             ),
                           );
                         }).toList(),
@@ -329,7 +331,7 @@ class _MesasScreenState extends State<MesasScreen> {
 class _MesaTile extends StatelessWidget {
   final MesaResumen mesa;
   final String? terminalSerieActual;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _MesaTile(
       {required this.mesa,

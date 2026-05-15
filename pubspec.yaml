@@ -1,11 +1,12 @@
 name: restaurante_tpv
 description: TPV para restaurante - Sunmi V2
 publish_to: 'none'
-version: 1.0.14
+version: 1.0.17
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
   flutter: ">=3.11.0"
+  
 dependencies:
   flutter:
     sdk: flutter
@@ -25,6 +26,7 @@ dependencies:
   nfc_manager: ^4.2.1
   speech_to_text: ^7.0.0
   battery_plus: ^6.0.3
+  print_bluetooth_thermal: ^1.2.1
 
 dev_dependencies:
   flutter_test:

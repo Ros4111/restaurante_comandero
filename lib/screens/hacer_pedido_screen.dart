@@ -6,10 +6,12 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/catalogo_provider.dart';
+import '../utils/precio_redondeo.dart';
 import '../utils/theme.dart';
 import '../widgets/catalogo_panel.dart';
 import '../widgets/lineas_panel.dart';
 import '../widgets/producto_opciones_dialog.dart';
+import 'package:restaurante_tpv/screens/reparto_comensales_screen.dart';
 import 'package:restaurante_tpv/services/sunmi_service.dart';
 
 class HacerPedidoScreen extends StatefulWidget {
@@ -35,6 +37,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   bool _guardando = false;
   bool _offline = false;
   bool _cargandoPedido = true;
+  bool _pantallaLista = false;
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
@@ -42,6 +45,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   @override
   void initState() {
     super.initState();
+    _clienteCtrl.clear();
     _cargarPedido();
     if (widget.bloqueadoPorMi) {
       // Ping cada 60s para mantener bloqueo
@@ -76,11 +80,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       setState(() {
         _offline = false;
         _cargandoPedido = false;
+        _pantallaLista = true;
       });
     } catch (_) {
       setState(() {
         _offline = true;
         _cargandoPedido = false;
+        _pantallaLista = true;
       });
       // modo offline: esperar y reintentar
       Future.delayed(const Duration(seconds: 5), _cargarPedido);
@@ -389,28 +395,49 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     return true;
   }
 
-  // ── Cálculo de totales (usa precios del catálogo, que vienen de la BD) ──────
+  // ── Totales: PVP unitario a 2 dec., igual que pedidos.php (evita 2×2,50 → 4,99) ─
   ({double base, double iva, double total}) _calcularTotales(
       List<LineaPedido> lineas, CatalogoProvider catalogo) {
     double base = 0;
     double iva = 0;
+    double totalTtc = 0;
     for (final linea in lineas) {
       final producto =
           catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
       if (producto == null) continue;
-      double precioLinea = producto.baseImponible;
+      final supl = <double>[];
       for (final entry in linea.opcionesElegidas.entries) {
         if (entry.value.predeterminado) continue;
         final opts = catalogo.opcionesDeGrupo(producto.id, entry.key);
         final match =
             opts.where((o) => o.nombreOpcion == entry.value.nombre).firstOrNull;
-        if (match != null) precioLinea += match.suplementoSinIva;
+        if (match != null) supl.add(match.suplementoSinIva);
       }
-      final baseLinea = precioLinea * linea.cantidad;
-      base += baseLinea;
-      iva += baseLinea * producto.porcentajeIVA / 100;
+      final baseUnit = baseImponibleUnitariaProductoLinea(
+        baseImponibleProducto: producto.baseImponible,
+        suplementosSinIvaNoPredeterminados: supl,
+      );
+      final pvpUnit = pvpUnitarioDesdeBaseSinIva(
+        baseSinIvaUnitaria: baseUnit,
+        porcentajeIva: producto.porcentajeIVA,
+      );
+      final lineTtc = importeTtcLinea(
+        pvpUnitario: pvpUnit,
+        cantidad: linea.cantidad,
+      );
+      final desglose = baseEIvaDesdeTtcLinea(
+        importeTtc: lineTtc,
+        porcentajeIva: producto.porcentajeIVA,
+      );
+      base += desglose.base;
+      iva += desglose.iva;
+      totalTtc += lineTtc;
     }
-    return (base: base, iva: iva, total: base + iva);
+    return (
+      base: redondearMoneda(base),
+      iva: redondearMoneda(iva),
+      total: redondearMoneda(totalTtc),
+    );
   }
 
   Widget _buildTotalesStrip(
@@ -438,6 +465,12 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_pantallaLista) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final api = context.watch<ApiService>();
     final mesaPv = context.watch<MesaProvider>();
     final sesion = context.watch<SesionProvider>();
@@ -514,7 +547,19 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
               if (sesion.esSupervisor)
                 IconButton(
                   onPressed: _cerrarMesa,
-                  tooltip: 'Cerrar mesa',
+                  onLongPress: () {
+                    Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => RepartoComensalesScreen(
+                          idMesa: widget.idMesa,
+                          lineasPedido:
+                              List<LineaPedido>.from(mesaPv.lineas),
+                        ),
+                      ),
+                    );
+                  },
+                  tooltip: 'Cerrar mesa · mantén pulsado: reparto comensales',
                   icon: const Icon(Icons.euro, color: Colors.green, size: 22),
                 ),
             ],

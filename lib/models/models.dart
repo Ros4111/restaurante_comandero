@@ -76,7 +76,6 @@ class OpcionProducto {
   final bool disponible;
   final int orden;
   final double suplementoSinIva;
-  final double porcentajeIVA;
 
   OpcionProducto(
       {required this.id,
@@ -86,8 +85,7 @@ class OpcionProducto {
       required this.predeterminado,
       required this.disponible,
       required this.orden,
-      this.suplementoSinIva = 0.0,
-      this.porcentajeIVA = 0.0});
+      this.suplementoSinIva = 0.0});
 
   factory OpcionProducto.fromJson(Map<String, dynamic> j) => OpcionProducto(
         id: int.parse(j['id_opcion'].toString()),
@@ -99,8 +97,6 @@ class OpcionProducto {
         orden: int.parse((j['orden'] ?? 0).toString()),
         suplementoSinIva:
             double.tryParse((j['suplemento_sin_iva'] ?? 0).toString()) ?? 0.0,
-        porcentajeIVA:
-            double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0,
       );
 }
 
@@ -246,6 +242,21 @@ class LineaPedido {
       'opciones_elegidas':
           opcionesElegidas.map((k, v) => MapEntry(k.toString(), v.toJson())),
       'texto_imprimir_cocina': textoImprimirBarraCocina,
+    };
+    if (idLinea != null) m['id_linea'] = idLinea;
+    if (moverAMesa != null) m['mover_a_mesa'] = moverAMesa;
+    return m;
+  }
+
+  /// Payload para POST /pedidos/.../guardar: solo referencia de producto, cantidad,
+  /// comentario y opciones. Los textos y precios los resuelve el servidor.
+  Map<String, dynamic> toJsonParaGuardarPedido() {
+    final Map<String, dynamic> m = {
+      'id_producto': idProducto,
+      'cantidad': cantidad,
+      'comentario': comentario,
+      'opciones_elegidas':
+          opcionesElegidas.map((k, v) => MapEntry(k.toString(), v.toJson())),
     };
     if (idLinea != null) m['id_linea'] = idLinea;
     if (moverAMesa != null) m['mover_a_mesa'] = moverAMesa;

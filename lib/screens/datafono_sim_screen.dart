@@ -425,7 +425,7 @@ class _DatafonoLecturaScreenState extends State<DatafonoLecturaScreen>
                           Text(
                             _enProceso
                                 ? 'Procesando…'
-                                : 'Pulsa aquí (zona de lectura)',
+                                : 'Acerca aquí tu tarjeta a la zona de lectura',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 20,
