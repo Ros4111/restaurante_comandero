@@ -12,9 +12,21 @@ const _colorTextoCategoria = Color.fromARGB(255, 99, 148, 100);
 class CatalogoPanel extends StatefulWidget {
   final void Function(Producto) onTap;
   final void Function(Producto) onLongPress;
+  /// Búsqueda por texto en pantalla de pedido: si está activa no se muestran categorías.
+  final bool busquedaActiva;
+  /// true ⇒ coincide con campo [Producto.filtro] (`mm` como prefijo en el campo padre).
+  final bool modoCampoFiltro;
+  /// Texto a buscar (sin el prefijo `mm` si correspondía).
+  final String terminoBusqueda;
 
-  const CatalogoPanel(
-      {super.key, required this.onTap, required this.onLongPress});
+  const CatalogoPanel({
+    super.key,
+    required this.onTap,
+    required this.onLongPress,
+    this.busquedaActiva = false,
+    this.modoCampoFiltro = false,
+    this.terminoBusqueda = '',
+  });
 
   @override
   State<CatalogoPanel> createState() => CatalogoPanelState();
@@ -39,9 +51,36 @@ class CatalogoPanelState extends State<CatalogoPanel> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final subcats = catalogo.categoriasHijo(_currentId);
-    final prods = catalogo.productosDeCategoria(_currentId);
-    final hayAtras = _stack.length > 1;
+    final modoBusqueda = widget.busquedaActiva;
+    late final List<Producto> resultadoBusqueda;
+    if (modoBusqueda) {
+      resultadoBusqueda = widget.modoCampoFiltro &&
+              widget.terminoBusqueda.trim().isEmpty
+          ? const <Producto>[]
+          : catalogo.productosPorBusquedaPedido(widget.terminoBusqueda,
+              enFiltro: widget.modoCampoFiltro);
+    } else {
+      resultadoBusqueda = const [];
+    }
+
+    final subcats = modoBusqueda
+        ? const <Categoria>[]
+        : catalogo.categoriasHijo(_currentId);
+    final prods =
+        modoBusqueda ? resultadoBusqueda : catalogo.productosDeCategoria(_currentId);
+    final hayAtras = !modoBusqueda && _stack.length > 1;
+
+    String? etiquetaCabecera;
+    if (!modoBusqueda && !hayAtras) {
+      etiquetaCabecera = 'Menú';
+    } else if (modoBusqueda) {
+      if (widget.modoCampoFiltro &&
+          widget.terminoBusqueda.trim().isEmpty) {
+        etiquetaCabecera = 'Filtrar campo clave (añade texto tras mm)';
+      } else {
+        etiquetaCabecera = widget.modoCampoFiltro ? 'Por filtro' : 'Por nombre';
+      }
+    }
 
     return Column(
       children: [
@@ -72,10 +111,10 @@ class CatalogoPanelState extends State<CatalogoPanel> {
                   ),
                 ),
               if (!hayAtras)
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Menú',
-                    style: TextStyle(
+                    etiquetaCabecera ?? 'Menú',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: _colorTextoCategoria,
@@ -90,6 +129,19 @@ class CatalogoPanelState extends State<CatalogoPanel> {
           child: ListView(
             padding: EdgeInsets.zero, // SIN padding exterior
             children: [
+              if (modoBusqueda && prods.isEmpty)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  child: Text(
+                    widget.modoCampoFiltro &&
+                            widget.terminoBusqueda.trim().isEmpty
+                        ? 'Escribe después de mm el texto del campo filtro (ej. mmCL)'
+                        : 'No hay coincidencias',
+                    style:
+                        TextStyle(color: AppTheme.colorTextoGris, fontSize: 15),
+                  ),
+                ),
               // Subcategorías — sin icono, sin padding extra
               ...subcats.asMap().entries.map(
                     (entry) => _CatTile(

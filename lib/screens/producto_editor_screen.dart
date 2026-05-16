@@ -64,6 +64,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   final _baseImponibleCtrl = TextEditingController();
   final _porcentajeIVACtrl = TextEditingController();
   final _pvpCtrl = TextEditingController();
+  final _filtroCtrl = TextEditingController();
   bool _actualizandoPrecio = false;
   final _buscarCtrl = TextEditingController();
 
@@ -115,6 +116,9 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                   .contains(q) ||
               (r['texto_imprimir_cliente']?.toString() ?? '')
                   .toLowerCase()
+                  .contains(q) ||
+              (r['filtro']?.toString() ?? '')
+                  .toLowerCase()
                   .contains(q);
       }
     }).toList();
@@ -163,6 +167,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     _baseImponibleCtrl.dispose();
     _porcentajeIVACtrl.dispose();
     _pvpCtrl.dispose();
+    _filtroCtrl.dispose();
     _buscarCtrl.dispose();
     super.dispose();
   }
@@ -178,7 +183,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       _baseImponibleCtrl.clear();
       _porcentajeIVACtrl.clear();
       _pvpCtrl.clear();
-      _disponible = true;
+      _filtroCtrl.clear();
       _error = null;
     });
     _aplicarDefaultsCatalogo();
@@ -256,6 +261,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
       setState(() {
         _id = id;
         _nombreCtrl.text = j['nombre_producto_pantalla']?.toString() ?? '';
+        _filtroCtrl.text = j['filtro']?.toString() ?? '';
         _textoImprimirBarraCocinaCtrl.text =
             j['texto_imprimir_cocina']?.toString() ?? '';
         _textoImprimirClienteCtrl.text =
@@ -384,6 +390,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
     return {
       'nombre_producto_pantalla': _nombreCtrl.text.trim(),
       'id_categoria': _idCategoria ?? 0,
+      'filtro': _filtroCtrl.text.trim(),
       'texto_imprimir_cocina': _textoImprimirBarraCocinaCtrl.text.trim().isEmpty
           ? _nombreCtrl.text.trim()
           : _textoImprimirBarraCocinaCtrl.text.trim(),
@@ -879,6 +886,20 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
                     filled: true,
                     fillColor: AppTheme.colorSuperficie,
                   ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _filtroCtrl,
+                  maxLength: 120,
+                  decoration: const InputDecoration(
+                    labelText:
+                        'Texto corto para buscar desde TPV (mm + este texto)',
+                    hintText: 'Ej: CL, Atun…',
+                    filled: true,
+                    fillColor: AppTheme.colorSuperficie,
+                    counterText: '',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(

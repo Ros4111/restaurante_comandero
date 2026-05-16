@@ -49,6 +49,46 @@ class SunmiService {
     return sangria ? ' ${cantidad}x $texto' : '${cantidad}x$texto';
   }
 
+  static String _claveImpresionAgrupada(LineaPedido l) {
+    final buf = StringBuffer()
+      ..write('${l.idProducto}|')
+      ..write('${l.comentario.trim()}|')
+      ..write('${l.textoImprimirBarraCocina}|')
+      ..write('${l.moverAMesa ?? '_'}|');
+    final keys = l.opcionesElegidas.keys.toList()..sort();
+    for (final k in keys) {
+      final o = l.opcionesElegidas[k]!;
+      buf.write('$k:${o.nombre}:${o.predeterminado};');
+    }
+    return buf.toString();
+  }
+
+  /// Misma línea lógica (producto, opciones y comentario), cantidades sumadas.
+  /// No modifica las instancias originales del pedido.
+  static List<LineaPedido> agruparLineasIgualdadImpresion(
+      List<LineaPedido> lineas) {
+    if (lineas.isEmpty) return [];
+    if (lineas.length == 1) return List<LineaPedido>.from(lineas);
+    final ordenClaves = <String>[];
+    final cantidadPorClave = <String, int>{};
+    final representantePorClave = <String, LineaPedido>{};
+
+    for (final l in lineas) {
+      final k = _claveImpresionAgrupada(l);
+      if (cantidadPorClave.containsKey(k)) {
+        cantidadPorClave[k] = cantidadPorClave[k]! + l.cantidad;
+      } else {
+        ordenClaves.add(k);
+        representantePorClave[k] = l;
+        cantidadPorClave[k] = l.cantidad;
+      }
+    }
+    return [
+      for (final k in ordenClaves)
+        representantePorClave[k]!.copyWith(cantidad: cantidadPorClave[k]!),
+    ];
+  }
+
   static Future<void> imprimirConfirmacion({
     required int idMesa,
     required String camarero,
@@ -59,15 +99,19 @@ class SunmiService {
     required Map<int, Impresora> impresorasPorId,
   }) async {
     try {
-      if (lineasNuevas.isEmpty &&
-          lineasEliminadas.isEmpty &&
-          lineasMovidas.isEmpty) {
+      final nuevasImp = agruparLineasIgualdadImpresion(lineasNuevas);
+      final elimImp = agruparLineasIgualdadImpresion(lineasEliminadas);
+      final movImp = agruparLineasIgualdadImpresion(lineasMovidas);
+
+      if (nuevasImp.isEmpty &&
+          elimImp.isEmpty &&
+          movImp.isEmpty) {
         return;
       }
 
       // Agrupar líneas por impresora
       final grouped = <int, List<LineaPedido>>{};
-      for (final l in lineasNuevas) {
+      for (final l in nuevasImp) {
         final idImpresora = impresoraPorProducto[l.idProducto] ?? 0;
         grouped.putIfAbsent(idImpresora, () => []).add(l);
       }
@@ -163,11 +207,11 @@ class SunmiService {
           }
         }
 
-        if (lineasEliminadas.isNotEmpty) {
+        if (elimImp.isNotEmpty) {
           printer.hr();
           _printEscPosText(printer, 'CANCELADO:',
               styles: const PosStyles(bold: true));
-          for (final l in lineasEliminadas) {
+          for (final l in elimImp) {
             _printEscPosText(
               printer,
               _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
@@ -176,11 +220,11 @@ class SunmiService {
           }
         }
 
-        if (lineasMovidas.isNotEmpty) {
+        if (movImp.isNotEmpty) {
           printer.hr();
           _printEscPosText(printer, 'MOVIDO:',
               styles: const PosStyles(bold: true));
-          for (final l in lineasMovidas) {
+          for (final l in movImp) {
             _printEscPosText(
               printer,
               _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
@@ -202,8 +246,8 @@ class SunmiService {
           idMesa: idMesa,
           camarero: camarero,
           lineasNuevas: lineasBluetooth,
-          lineasEliminadas: lineasEliminadas,
-          lineasMovidas: lineasMovidas,
+          lineasEliminadas: elimImp,
+          lineasMovidas: movImp,
         );
       }
     } catch (e) {

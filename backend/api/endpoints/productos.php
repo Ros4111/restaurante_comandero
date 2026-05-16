@@ -59,7 +59,7 @@ function endpointProductosListar(array $payload): void {
     if ($q === '') {
         $st = $db->query(
             'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                    id_impresora, disponible, orden
+                    id_impresora, disponible, orden, COALESCE(filtro, \'\') AS filtro
                FROM productos
            ORDER BY orden, id_producto
               LIMIT 150'
@@ -69,13 +69,14 @@ function endpointProductosListar(array $payload): void {
         $like = '%' . $q . '%';
         $st = $db->prepare(
             'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                    id_impresora, disponible, orden
+                    id_impresora, disponible, orden, COALESCE(filtro, \'\') AS filtro
                FROM productos
               WHERE nombre_producto_pantalla LIKE ? OR CAST(id_producto AS CHAR) LIKE ?
+                 OR COALESCE(filtro, \'\') LIKE ?
            ORDER BY nombre_producto_pantalla
               LIMIT 100'
         );
-        $st->execute([$like, $like . '%']);
+        $st->execute([$like, $like . '%', $like]);
         $rows = $st->fetchAll();
     }
     jsonOk($rows);
@@ -88,7 +89,7 @@ function endpointProductoGet(array $payload, int $id): void {
     $st = $db->prepare(
         'SELECT id_producto, nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
                 texto_imprimir_cliente, id_impresora, disponible, orden,
-                base_imponible, porcentaje_IVA
+                base_imponible, porcentaje_IVA, COALESCE(filtro, \'\') AS filtro
            FROM productos WHERE id_producto = ?'
     );
     $st->execute([$id]);
@@ -117,6 +118,7 @@ function endpointProductoCrear(array $payload): void {
 
     $texto        = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
     $textoCliente = trim((string)($body['texto_imprimir_cliente'] ?? ''));
+    $filtro       = trim((string)($body['filtro'] ?? ''));
     $idImp        = (int)($body['id_impresora'] ?? 0);
     $disp         = (int)!empty($body['disponible']);
     $orden        = (int)($body['orden'] ?? 0);
@@ -132,13 +134,13 @@ function endpointProductoCrear(array $payload): void {
 
     $st = $db->prepare(
         'INSERT INTO productos (nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                texto_imprimir_cliente, id_impresora, disponible, orden,
+                texto_imprimir_cliente, filtro, id_impresora, disponible, orden,
                 base_imponible, porcentaje_IVA)
-         VALUES (?,?,?,?,?,?,?,?,?)'
+         VALUES (?,?,?,?,?,?,?,?,?,?)'
     );
     $db->beginTransaction();
     try {
-        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden,
+        $st->execute([$nombre, $idCat, $texto, $textoCliente, $filtro, $idImp, $disp, $orden,
                       $baseImp, $pctIVA]);
         $id = (int)$db->lastInsertId();
         if (array_key_exists('opciones', $body)) {
@@ -162,6 +164,7 @@ function endpointProductoActualizar(array $payload, int $id): void {
 
     $texto        = trim((string)($body['texto_imprimir_cocina'] ?? $nombre));
     $textoCliente = trim((string)($body['texto_imprimir_cliente'] ?? ''));
+    $filtro       = trim((string)($body['filtro'] ?? ''));
     $idImp        = (int)($body['id_impresora'] ?? 0);
     $disp         = (int)!empty($body['disponible']);
     $orden        = (int)($body['orden'] ?? 0);
@@ -178,13 +181,13 @@ function endpointProductoActualizar(array $payload, int $id): void {
     $st = $db->prepare(
         'UPDATE productos
             SET nombre_producto_pantalla = ?, id_categoria = ?, texto_imprimir_cocina = ?,
-                texto_imprimir_cliente = ?, id_impresora = ?, disponible = ?, orden = ?,
+                texto_imprimir_cliente = ?, filtro = ?, id_impresora = ?, disponible = ?, orden = ?,
                 base_imponible = ?, porcentaje_IVA = ?
           WHERE id_producto = ?'
     );
     $db->beginTransaction();
     try {
-        $st->execute([$nombre, $idCat, $texto, $textoCliente, $idImp, $disp, $orden,
+        $st->execute([$nombre, $idCat, $texto, $textoCliente, $filtro, $idImp, $disp, $orden,
                       $baseImp, $pctIVA, $id]);
         if ($st->rowCount() === 0) {
             $chk = $db->prepare('SELECT 1 FROM productos WHERE id_producto = ?');
@@ -237,7 +240,7 @@ function endpointProductoCopiar(array $payload): void {
     $st = $db->prepare(
         'SELECT nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
                 texto_imprimir_cliente, id_impresora, disponible, orden,
-                base_imponible, porcentaje_IVA
+                base_imponible, porcentaje_IVA, COALESCE(filtro, \'\') AS filtro
            FROM productos WHERE id_producto = ?'
     );
     $st->execute([$idO]);
@@ -257,15 +260,16 @@ function endpointProductoCopiar(array $payload): void {
     try {
         $ins = $db->prepare(
             'INSERT INTO productos (nombre_producto_pantalla, id_categoria, texto_imprimir_cocina,
-                     texto_imprimir_cliente, id_impresora, disponible, orden,
+                     texto_imprimir_cliente, filtro, id_impresora, disponible, orden,
                      base_imponible, porcentaje_IVA)
-             VALUES (?,?,?,?,?,?,?,?,?)'
+             VALUES (?,?,?,?,?,?,?,?,?,?)'
         );
         $ins->execute([
             $nombreNuevo,
             (int)$orig['id_categoria'],
             $orig['texto_imprimir_cocina'],
             $orig['texto_imprimir_cliente'] ?? '',
+            (string)($orig['filtro'] ?? ''),
             (int)$orig['id_impresora'],
             (int)$orig['disponible'],
             $orden,

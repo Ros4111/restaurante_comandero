@@ -1,6 +1,8 @@
 // lib/services/catalogo_provider.dart
 import 'package:flutter/foundation.dart';
+
 import '../models/models.dart';
+import '../utils/busqueda_texto.dart';
 
 class CatalogoProvider extends ChangeNotifier {
   List<Categoria> categorias = [];
@@ -40,6 +42,35 @@ class CatalogoProvider extends ChangeNotifier {
       .where((p) => p.idCategoria == idCategoria && p.disponible)
       .toList()
     ..sort((a, b) => a.orden.compareTo(b.orden));
+
+  /// Búsqueda en pantalla de pedido: [enFiltro] usa `Producto.filtro`; si no, nombre/id.
+  List<Producto> productosPorBusquedaPedido(String texto,
+      {required bool enFiltro}) {
+    final needle = texto.trim();
+    if (needle.isEmpty) return [];
+    final n = normalizarTextoBusqueda(needle);
+    if (n.isEmpty) return [];
+    final out = <Producto>[];
+    for (final p in productos) {
+      if (!p.disponible) continue;
+      if (enFiltro) {
+        final f = normalizarTextoBusqueda(p.filtro);
+        if (!f.contains(n)) continue;
+      } else {
+        final nm = normalizarTextoBusqueda(p.nombreProductoPantalla);
+        if (!nm.contains(n) && !p.id.toString().contains(needle)) continue;
+      }
+      out.add(p);
+    }
+    out.sort((a, b) {
+      final co = a.orden.compareTo(b.orden);
+      if (co != 0) return co;
+      return a.nombreProductoPantalla
+          .toLowerCase()
+          .compareTo(b.nombreProductoPantalla.toLowerCase());
+    });
+    return out;
+  }
 
   List<GrupoOpciones> gruposDeProducto(int idProducto) {
     final idsGrupo = opciones

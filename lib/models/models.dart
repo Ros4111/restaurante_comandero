@@ -106,6 +106,8 @@ class Producto {
   final int idCategoria;
   final String textoImprimirBarraCocina;
   final String textoImprimirCliente;
+  /// Atajos para búsqueda TPV (ej. "CL" para Café leche). Viene de MySQL `productos.filtro`.
+  final String filtro;
   final int idImpresora;
   final bool disponible;
   final int orden;
@@ -118,6 +120,7 @@ class Producto {
       required this.idCategoria,
       required this.textoImprimirBarraCocina,
       this.textoImprimirCliente = '',
+      this.filtro = '',
       required this.idImpresora,
       required this.disponible,
       required this.orden,
@@ -130,6 +133,7 @@ class Producto {
         idCategoria: int.parse(j['id_categoria'].toString()),
         textoImprimirBarraCocina: j['texto_imprimir_cocina'] ?? '',
         textoImprimirCliente: j['texto_imprimir_cliente']?.toString() ?? '',
+        filtro: j['filtro']?.toString() ?? '',
         idImpresora: int.parse((j['id_impresora'] ?? 0).toString()),
         disponible: j['disponible'].toString() == '1',
         orden: int.parse((j['orden'] ?? 0).toString()),

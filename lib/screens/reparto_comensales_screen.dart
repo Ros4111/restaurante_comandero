@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
 import '../models/models.dart';
 import '../services/catalogo_provider.dart';
@@ -121,7 +122,7 @@ class RepartoComensalesScreen extends StatefulWidget {
 
 class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
   static const _padListaH = EdgeInsets.fromLTRB(16, 8, 6, 8);
-  static const _padPieH = EdgeInsets.fromLTRB(16, 6, 6, 10);
+  static const _padPieH = EdgeInsets.fromLTRB(16, 4, 6, 6);
   static const _anchoColNombre = 120.0;
   static const _anchoColPrecio = 50.0;
 
@@ -144,6 +145,14 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
   String? _destinoImpresora;
   bool _imprimiendo = false;
 
+  final ScrollController _scrollLista = ScrollController();
+  final GlobalKey _keyTutorialComensales = GlobalKey();
+  final GlobalKey _keyTutorialComensal1 = GlobalKey();
+  final GlobalKey _keyTutorialProducto = GlobalKey();
+  final GlobalKey _keyTutorialResto = GlobalKey();
+  final GlobalKey _keyTutorialTotales = GlobalKey();
+  bool _tutorialScrolledForResto = false;
+
   @override
   void initState() {
     super.initState();
@@ -158,10 +167,175 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
 
   @override
   void dispose() {
+    _scrollLista.dispose();
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
     ]);
     super.dispose();
+  }
+
+  Future<void> _scrollListaAlFinal() async {
+    if (!_scrollLista.hasClients) return;
+    await _scrollLista.animateTo(
+      _scrollLista.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _resetTutorialReparto() {
+    _tutorialScrolledForResto = false;
+  }
+
+  Widget _bloqueTextoTutorial(String titulo, String cuerpo) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          cuerpo,
+          style: const TextStyle(color: Colors.white70, fontSize: 15),
+        ),
+      ],
+    );
+  }
+
+  List<TargetFocus> _targetsTutorialReparto() {
+    final targets = <TargetFocus>[
+      TargetFocus(
+        identify: 'reparto_comensales',
+        keyTarget: _keyTutorialComensales,
+        shape: ShapeLightFocus.RRect,
+        radius: 8,
+        contents: [
+          TargetContent(
+            align: ContentAlign.bottom,
+            builder: (_, __) => _bloqueTextoTutorial(
+              'Número de comensales',
+              'Pulsa − y + para ajustar cuántas personas hay en la mesa.',
+            ),
+          ),
+        ],
+      ),
+      TargetFocus(
+        identify: 'reparto_nombre_comensal',
+        keyTarget: _keyTutorialComensal1,
+        shape: ShapeLightFocus.RRect,
+        radius: 8,
+        contents: [
+          TargetContent(
+            align: ContentAlign.top,
+            builder: (_, __) => _bloqueTextoTutorial(
+              'Nombre del comensal',
+              'Toca el botón de cada comensal (por ejemplo Comensal 1) '
+                  'para poner su nombre y reconocerlo mejor en el reparto.',
+            ),
+          ),
+        ],
+      ),
+      TargetFocus(
+        identify: 'reparto_producto',
+        keyTarget: _keyTutorialProducto,
+        shape: ShapeLightFocus.RRect,
+        radius: 8,
+        contents: [
+          TargetContent(
+            align: ContentAlign.bottom,
+            builder: (_, __) => _bloqueTextoTutorial(
+              'Asignar en exclusiva',
+              'En cada producto, arrastra el control hasta el comensal '
+                  'que lo consumió. Si queda en «Sin asignar», sigue pendiente.',
+            ),
+          ),
+        ],
+      ),
+    ];
+
+    if (!_todoAsignadoAComensal) {
+      targets.add(
+        TargetFocus(
+          identify: 'reparto_resto',
+          keyTarget: _keyTutorialResto,
+          shape: ShapeLightFocus.RRect,
+          radius: 8,
+          contents: [
+            TargetContent(
+              align: ContentAlign.top,
+              builder: (_, __) {
+                if (!_tutorialScrolledForResto) {
+                  _tutorialScrolledForResto = true;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _scrollListaAlFinal();
+                  });
+                }
+                return _bloqueTextoTutorial(
+                  'Repartir el resto a medias',
+                  'Desplázate hasta aquí cuando queden productos sin asignar. '
+                      'Marca uno o varios comensales para repartir el importe '
+                      'pendiente entre ellos a partes iguales.',
+                );
+              },
+            ),
+          ],
+        ),
+      );
+    }
+
+    targets.add(
+      TargetFocus(
+        identify: 'reparto_totales',
+        keyTarget: _keyTutorialTotales,
+        shape: ShapeLightFocus.RRect,
+        radius: 8,
+        contents: [
+          TargetContent(
+            align: ContentAlign.top,
+            builder: (_, __) => _bloqueTextoTutorial(
+              'Totales por comensal',
+              'Aquí ves lo pendiente y el importe asignado a cada comensal. '
+                  'Cuando todo esté repartido, podrás imprimir el ticket.',
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return targets;
+  }
+
+  void _iniciarTutorialReparto() {
+    if (!_expansionCalculada || _filas.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Necesitas productos en el pedido para ver el tutorial',
+          ),
+        ),
+      );
+      return;
+    }
+    _resetTutorialReparto();
+    TutorialCoachMark(
+      targets: _targetsTutorialReparto(),
+      colorShadow: Colors.black,
+      opacityShadow: 0.85,
+      paddingFocus: 8,
+      textSkip: 'Omitir',
+      onFinish: _resetTutorialReparto,
+      onSkip: () {
+        _resetTutorialReparto();
+        return true;
+      },
+    ).show(context: context);
   }
 
   void _inicializarContenido() {
@@ -272,31 +446,60 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
     final i = c - 1;
     if (i < 0 || i >= _nombresComensales.length) return;
     final controller = TextEditingController(text: _nombresComensales[i]);
+    final ancho = MediaQuery.sizeOf(context).width;
     final nuevo = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Nombre comensal $c'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 24,
-          decoration: const InputDecoration(
-            hintText: 'Ej. Juan, María…',
-            counterText: '',
+      builder: (ctx) => Dialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        alignment: Alignment.topCenter,
+        insetPadding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: SizedBox(
+            width: ancho - 48,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    maxLength: 24,
+                    decoration: const InputDecoration(
+                      hintText: 'Ej. Juan, María…',
+                      counterText: '',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                    textCapitalization: TextCapitalization.words,
+                    onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 40),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    minimumSize: const Size(0, 40),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Guardar'),
+                ),
+              ],
+            ),
           ),
-          textCapitalization: TextCapitalization.words,
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Guardar'),
-          ),
-        ],
       ),
     );
     controller.dispose();
@@ -614,22 +817,25 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
                 ),
           ],
         ),
-        zonaCentral: SliderTheme(
-          data: _temaSliderAsignacion(),
-          child: Slider(
-            padding: EdgeInsets.zero,
-            value:
-                _asignacion[i].toDouble().clamp(0, _numComensales.toDouble()),
-            min: 0,
-            max: _numComensales.toDouble(),
-            divisions: _numComensales,
-            label: _etiquetaAsignacion(_asignacion[i]),
-            onChanged: (v) {
-              setState(() {
-                _asignacion[i] = v.round();
-                _limpiarRestoSiNoAplica();
-              });
-            },
+        zonaCentral: KeyedSubtree(
+          key: i == 0 ? _keyTutorialProducto : null,
+          child: SliderTheme(
+            data: _temaSliderAsignacion(),
+            child: Slider(
+              padding: EdgeInsets.zero,
+              value:
+                  _asignacion[i].toDouble().clamp(0, _numComensales.toDouble()),
+              min: 0,
+              max: _numComensales.toDouble(),
+              divisions: _numComensales,
+              label: _etiquetaAsignacion(_asignacion[i]),
+              onChanged: (v) {
+                setState(() {
+                  _asignacion[i] = v.round();
+                  _limpiarRestoSiNoAplica();
+                });
+              },
+            ),
           ),
         ),
         columnaPrecio: Text(
@@ -663,6 +869,7 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
     ];
 
     return Padding(
+      key: _keyTutorialResto,
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Opacity(
         opacity: habilitado ? 1 : 0.35,
@@ -696,8 +903,9 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
 
   Widget _celdaTotalComensal(int c, List<double> totCols) {
     String fmtEuro(double v) => '${v.toStringAsFixed(2)} €';
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+    final celda = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
       decoration: BoxDecoration(
         color: c == 0
             ? Colors.grey[800]
@@ -711,62 +919,75 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
           if (c == 0)
             const Text(
               'Pendiente',
-              style: TextStyle(fontSize: 10, color: Colors.white54),
+              style: TextStyle(fontSize: 12, color: Colors.white54),
             )
           else
-            InkWell(
-              onTap: () => _editarNombreComensal(c),
-              borderRadius: BorderRadius.circular(4),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 1),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        _nombreComensal(c),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.white70,
-                        ),
-                      ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    _nombreComensal(c),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70,
                     ),
-                    Icon(
-                      Icons.edit_outlined,
-                      size: 10,
-                      color: Colors.white.withValues(alpha: 0.5),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                Icon(
+                  Icons.edit_outlined,
+                  size: 12,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+              ],
             ),
           Text(
             fmtEuro(totCols[c]),
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 11,
+              fontSize: 13,
             ),
           ),
         ],
       ),
     );
+
+    if (c == 0) return celda;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _editarNombreComensal(c),
+        borderRadius: BorderRadius.circular(6),
+        child: celda,
+      ),
+    );
   }
 
   Widget _filaTotales(List<double> totCols) {
-    return _filaRejillaAsignacion(
-      columnaIzquierda: const SizedBox.shrink(),
-      zonaCentral: _zonaPosicionesComensales(
-        alto: 54,
-        anchuraAmpliaTotales: true,
-        elementos: [
-          for (var c = 0; c <= _numComensales; c++)
-            _celdaTotalComensal(c, totCols),
-        ],
+    return KeyedSubtree(
+      key: _keyTutorialTotales,
+      child: _filaRejillaAsignacion(
+        columnaIzquierda: const SizedBox.shrink(),
+        zonaCentral: _zonaPosicionesComensales(
+          alto: 50,
+          anchuraAmpliaTotales: true,
+          elementos: [
+            for (var c = 0; c <= _numComensales; c++)
+              if (c == 1)
+                KeyedSubtree(
+                  key: _keyTutorialComensal1,
+                  child: _celdaTotalComensal(c, totCols),
+                )
+              else
+                _celdaTotalComensal(c, totCols),
+          ],
+        ),
       ),
     );
   }
@@ -801,32 +1022,67 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
     final filaComensales = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        IconButton(
+          onPressed: _iniciarTutorialReparto,
+          tooltip: 'Cómo usar el reparto',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.orange,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          icon: const Text(
+            '?',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
         const Text(
           'Comensales',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(width: 12),
-        IconButton.filledTonal(
-          onPressed:
-              _numComensales > 2 ? () => _cambiarNumComensales(-1) : null,
-          style: IconButton.styleFrom(
-            backgroundColor: _numComensales == 2 ? Colors.grey.shade700 : null,
-            foregroundColor: _numComensales == 2 ? Colors.white54 : null,
+        KeyedSubtree(
+          key: _keyTutorialComensales,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton.filledTonal(
+                onPressed:
+                    _numComensales > 2 ? () => _cambiarNumComensales(-1) : null,
+                style: IconButton.styleFrom(
+                  backgroundColor:
+                      _numComensales == 2 ? Colors.grey.shade700 : null,
+                  foregroundColor: _numComensales == 2 ? Colors.white54 : null,
+                ),
+                icon: const Icon(Icons.remove),
+                tooltip: 'Menos comensales',
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  '$_numComensales',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton.filledTonal(
+                onPressed: () => _cambiarNumComensales(1),
+                icon: const Icon(Icons.add),
+                tooltip: 'Más comensales',
+              ),
+            ],
           ),
-          icon: const Icon(Icons.remove),
-          tooltip: 'Menos comensales',
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            '$_numComensales',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-        ),
-        IconButton.filledTonal(
-          onPressed: () => _cambiarNumComensales(1),
-          icon: const Icon(Icons.add),
-          tooltip: 'Más comensales',
         ),
       ],
     );
@@ -934,7 +1190,10 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
       );
     }
 
-    return CustomScrollView(slivers: slivers);
+    return CustomScrollView(
+      controller: _scrollLista,
+      slivers: slivers,
+    );
   }
 
   @override
@@ -944,9 +1203,6 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
     final hayFilas = _expansionCalculada && _filas.isNotEmpty;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Reparto comensales'),
-      ),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

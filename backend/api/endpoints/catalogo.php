@@ -66,7 +66,7 @@ function endpointCatalogo(array $payload): void {
     $prods = $db->query(
         'SELECT id_producto, nombre_producto_pantalla, id_categoria,
                 texto_imprimir_cocina, id_impresora, disponible, orden,
-                base_imponible, porcentaje_IVA
+                base_imponible, porcentaje_IVA, COALESCE(filtro, \'\') AS filtro
            FROM productos ORDER BY orden, id_producto'
     )->fetchAll();
 

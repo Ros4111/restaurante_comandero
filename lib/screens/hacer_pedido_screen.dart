@@ -14,6 +14,19 @@ import '../widgets/producto_opciones_dialog.dart';
 import 'package:restaurante_tpv/screens/reparto_comensales_screen.dart';
 import 'package:restaurante_tpv/services/sunmi_service.dart';
 
+/// Dos `mm` al inicio (tras espacios) ⇒ el resto se busca en [Producto.filtro].
+({bool activa, bool modoFiltroMm, String termino})
+    interpretarCampoBusquedaCatalogoMm(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) {
+    return (activa: false, modoFiltroMm: false, termino: '');
+  }
+  if (t.length >= 2 && t.substring(0, 2).toLowerCase() == 'mm') {
+    return (activa: true, modoFiltroMm: true, termino: t.substring(2).trim());
+  }
+  return (activa: true, modoFiltroMm: false, termino: t);
+}
+
 class HacerPedidoScreen extends StatefulWidget {
   final int idPedido;
   final int idMesa;
@@ -41,6 +54,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
+  final TextEditingController _buscarCatalogoCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -57,6 +71,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   void dispose() {
     _pingTimer?.cancel();
     _clienteCtrl.dispose();
+    _buscarCatalogoCtrl.dispose();
     super.dispose();
   }
 
@@ -476,6 +491,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final sesion = context.watch<SesionProvider>();
     final catalogo = context.watch<CatalogoProvider>();
 
+    final busq =
+        interpretarCampoBusquedaCatalogoMm(_buscarCatalogoCtrl.text);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -605,10 +623,74 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                       style: TextStyle(
                                           color: AppTheme.colorTextoGris,
                                           fontSize: 18)))
-                              : CatalogoPanel(
-                                  key: _catalogoKey,
-                                  onTap: onProductoTap,
-                                  onLongPress: onProductoLongPress,
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 8, 12, 6),
+                                      child: TextField(
+                                        controller: _buscarCatalogoCtrl,
+                                        onChanged: (_) => setState(() {}),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                        ),
+                                        cursorColor: Colors.white,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          hintText:
+                                              'Buscar producto · escribe mm y el código del filtro',
+                                          hintStyle: const TextStyle(
+                                            color: Colors.white38,
+                                            fontSize: 13,
+                                          ),
+                                          filled: true,
+                                          fillColor: Colors.black26,
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          prefixIcon: Icon(
+                                            busq.modoFiltroMm
+                                                ? Icons.tag
+                                                : Icons.search,
+                                            size: 20,
+                                            color: busq.modoFiltroMm
+                                                ? AppTheme.colorPrimario
+                                                : Colors.white54,
+                                          ),
+                                          suffixIcon:
+                                              busq.activa
+                                                  ? IconButton(
+                                                      tooltip: 'Limpiar',
+                                                      icon: const Icon(
+                                                        Icons.clear,
+                                                        size: 18,
+                                                      ),
+                                                      onPressed: () {
+                                                        _buscarCatalogoCtrl
+                                                            .clear();
+                                                        setState(() {});
+                                                      },
+                                                    )
+                                                  : null,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: CatalogoPanel(
+                                        key: _catalogoKey,
+                                        onTap: onProductoTap,
+                                        onLongPress: onProductoLongPress,
+                                        busquedaActiva: busq.activa,
+                                        modoCampoFiltro: busq.modoFiltroMm,
+                                        terminoBusqueda: busq.termino,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                         ),
                         const VerticalDivider(
