@@ -1,6 +1,6 @@
 // lib/screens/reparto_comensales_screen.dart
 // Reparto del importe del pedido entre comensales (una fila por unidad).
-import 'dart:math' show min;
+import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -41,14 +41,9 @@ List<String> _opcionesQueIncrementanPrecio(
       entry.value.nombre,
     );
     if (match == null || match.suplementoSinIva <= 0) continue;
-    final suplementoTtc = pvpUnitarioDesdeBaseSinIva(
-      baseSinIvaUnitaria: match.suplementoSinIva,
-      porcentajeIva: producto.porcentajeIVA,
-    );
-    if (suplementoTtc <= 0) continue;
     final nombre = entry.value.nombre.trim();
     if (nombre.isEmpty) continue;
-    out.add('$nombre +${suplementoTtc.toStringAsFixed(2)} €');
+    out.add(nombre);
   }
   return out;
 }
@@ -509,28 +504,44 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
     return (maxCentrado * factor).clamp(32.0, 88.0);
   }
 
+  /// Ancho mínimo de cada celda de totales (más ancha que el checkbox): igual que
+  /// el paso entre divisiones del slider, para que "Pendiente" y el último
+  /// comensal no queden más estrechos que el centro.
+  double _anchoMinimoCeldaTotales(double anchoZona) {
+    final trackWidth = anchoZona - 2 * _sliderThumbRadius;
+    if (_numComensales <= 0) return trackWidth.clamp(56.0, 96.0);
+    final paso = trackWidth / _numComensales;
+    return paso.clamp(52.0, 92.0);
+  }
+
   /// Coloca hijos centrados en las mismas X que los thumbs del slider.
   Widget _zonaPosicionesComensales({
     required List<Widget?> elementos,
     required double alto,
     double? anchoElemento,
     double factorAncho = 0.9,
+    bool anchuraAmpliaTotales = false,
   }) {
     assert(elementos.length == _numComensales + 1);
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
+        final minTotales =
+            anchuraAmpliaTotales ? _anchoMinimoCeldaTotales(w) : null;
         final hijos = <Widget>[];
         for (var c = 0; c < elementos.length; c++) {
           final el = elementos[c];
           if (el == null) continue;
           final center = _centroColumnaSlider(w, c);
-          final ew = _anchoCeldaEnPosicion(
+          var ew = _anchoCeldaEnPosicion(
             w,
             c,
             anchoPreferido: anchoElemento,
             factor: factorAncho,
           );
+          if (minTotales != null) {
+            ew = max(ew, minTotales);
+          }
           hijos.add(
             Positioned(
               left: center - ew / 2,
@@ -751,6 +762,7 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
       columnaIzquierda: const SizedBox.shrink(),
       zonaCentral: _zonaPosicionesComensales(
         alto: 54,
+        anchuraAmpliaTotales: true,
         elementos: [
           for (var c = 0; c <= _numComensales; c++)
             _celdaTotalComensal(c, totCols),
