@@ -408,26 +408,38 @@ class LineaPendienteServir {
 }
 
 class PedidoPendienteServir {
+  /// Clave única del lote (id_pedido + hora_pedido del envío a cocina).
+  final String idGrupo;
   final int idPedido;
+  final String horaPedido;
   final int idMesa;
   final String nombreCliente;
   final List<LineaPendienteServir> lineas;
 
   const PedidoPendienteServir({
+    required this.idGrupo,
     required this.idPedido,
+    required this.horaPedido,
     required this.idMesa,
     required this.nombreCliente,
     required this.lineas,
   });
 
-  factory PedidoPendienteServir.fromJson(Map<String, dynamic> j) =>
-      PedidoPendienteServir(
-        idPedido: int.parse(j['id_pedido'].toString()),
-        idMesa: int.parse(j['id_mesa'].toString()),
-        nombreCliente: j['nombre_cliente']?.toString() ?? '',
-        lineas: (j['lineas'] as List? ?? [])
-            .map((e) =>
-                LineaPendienteServir.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
+  factory PedidoPendienteServir.fromJson(Map<String, dynamic> j) {
+    final idPedido = int.parse(j['id_pedido'].toString());
+    final horaPedido = j['hora_pedido']?.toString() ?? '';
+    final idGrupo = j['id_grupo']?.toString() ??
+        (horaPedido.isNotEmpty ? '$idPedido|$horaPedido' : idPedido.toString());
+    return PedidoPendienteServir(
+      idGrupo: idGrupo,
+      idPedido: idPedido,
+      horaPedido: horaPedido,
+      idMesa: int.parse(j['id_mesa'].toString()),
+      nombreCliente: j['nombre_cliente']?.toString() ?? '',
+      lineas: (j['lineas'] as List? ?? [])
+          .map((e) =>
+              LineaPendienteServir.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }

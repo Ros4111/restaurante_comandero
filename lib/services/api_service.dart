@@ -77,9 +77,9 @@ class ApiService extends ChangeNotifier {
     try {
       final info = await DeviceInfoPlugin().androidInfo;
       final candidates = <String?>[
-        info.serialNumber,
         info.id,
         info.fingerprint,
+        info.hardware,
         '${info.manufacturer}-${info.model}',
       ];
       final raw = candidates.firstWhere(

@@ -3,10 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_windows
   battery_plus
   charset_converter
-  connectivity_plus
-  flutter_secure_storage_windows
   print_bluetooth_thermal
   speech_to_text_windows
 )

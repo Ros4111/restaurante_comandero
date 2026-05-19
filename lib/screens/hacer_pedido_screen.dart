@@ -278,14 +278,14 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     confirmCtrl.dispose();
     if (ok != true) return;
     final guardadoOk = await _guardar();
-    if (!guardadoOk) return;
+    if (!guardadoOk || !mounted) return;
 
     final catalogo = context.read<CatalogoProvider>();
     final mesaPv = context.read<MesaProvider>();
     final totales = _calcularTotales(mesaPv.lineas, catalogo);
     if (totales.total > 0) {
       final cobrado = await _cobrarEnCashlogy(totales.total);
-      if (!cobrado) return;
+      if (!cobrado || !mounted) return;
     }
 
     try {

@@ -1196,7 +1196,20 @@ class _DialogEditarNombreComensalState
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.nombreInicial);
+    final texto = widget.nombreInicial;
+    _controller = TextEditingController.fromValue(
+      TextEditingValue(
+        text: texto,
+        selection: TextSelection(baseOffset: 0, extentOffset: texto.length),
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final len = _controller.text.length;
+      _controller.value = _controller.value.copyWith(
+        selection: TextSelection(baseOffset: 0, extentOffset: len),
+      );
+    });
   }
 
   @override

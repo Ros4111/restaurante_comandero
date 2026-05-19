@@ -1,7 +1,9 @@
 // Pantalla de productos pendientes de servir en mesa (cocina / barra / servicio).
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -24,19 +26,38 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
   static const _pasoFuente = 2;
 
   List<PedidoPendienteServir> _pedidos = [];
-  final Map<int, Set<int>> _seleccion = {};
+  final Map<String, Set<int>> _seleccion = {};
   bool _cargando = true;
   bool _marcando = false;
   String? _error;
   int _deltaFuente = 0;
   Timer? _autoRefreshTimer;
   bool _actualizando = false;
+  bool _cargaInicialHecha = false;
+  Set<int> _lineasConocidas = {};
+  Set<String> _gruposConocidos = {};
+  AudioPlayer? _avisoPlayer;
 
   double _fs(double base) => (base + _deltaFuente).clamp(9.0, 36.0).toDouble();
+
+  /// Clave de selección única por tarjeta (evita colisión si varios lotes comparten idGrupo).
+  String _claveSeleccion(PedidoPendienteServir p) {
+    if (p.lineas.isEmpty) return p.idGrupo;
+    final ids = p.lineas.map((l) => l.idLinea).toList()..sort();
+    return '${p.idGrupo}#${ids.join('-')}';
+  }
+
+  Set<int> _lineasSeleccionadas(PedidoPendienteServir p) {
+    final sel = _seleccion[_claveSeleccion(p)];
+    if (sel == null || sel.isEmpty) return {};
+    final idsTarjeta = p.lineas.map((l) => l.idLinea).toSet();
+    return sel.where(idsTarjeta.contains).toSet();
+  }
 
   @override
   void initState() {
     super.initState();
+    _avisoPlayer = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
     _cargar();
     _autoRefreshTimer = Timer.periodic(
       const Duration(seconds: 10),
@@ -49,6 +70,7 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
+    _avisoPlayer?.dispose();
     super.dispose();
   }
 
@@ -64,19 +86,40 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     try {
       final lista = await context.read<ApiService>().getServicioPendientes();
       if (!mounted) return;
+
+      final lineasActuales = {
+        for (final p in lista) for (final l in p.lineas) l.idLinea,
+      };
+      final gruposActuales = lista.map((p) => p.idGrupo).toSet();
+      final lineasNuevas = lineasActuales.difference(_lineasConocidas);
+      final gruposNuevos = gruposActuales.difference(_gruposConocidos);
+      final hayNovedad = _cargaInicialHecha &&
+          (lineasNuevas.isNotEmpty || gruposNuevos.isNotEmpty);
+
       setState(() {
         _pedidos = lista;
+        _lineasConocidas = lineasActuales;
+        _gruposConocidos = gruposActuales;
+        _cargaInicialHecha = true;
         _seleccion.removeWhere(
-          (idPedido, _) => !lista.any((p) => p.idPedido == idPedido),
+          (clave, _) => !lista.any((p) => _claveSeleccion(p) == clave),
         );
         for (final p in lista) {
           final vigentes = p.lineas.map((l) => l.idLinea).toSet();
           _seleccion
-              .putIfAbsent(p.idPedido, () => {})
+              .putIfAbsent(_claveSeleccion(p), () => {})
               .removeWhere((id) => !vigentes.contains(id));
         }
         if (!silencioso) _cargando = false;
       });
+
+      if (hayNovedad) {
+        debugPrint(
+          '[pendientes_servir] Novedad: ${lineasNuevas.length} línea(s), '
+          '${gruposNuevos.length} lote(s)',
+        );
+        unawaited(_sonidoPedidoNuevo());
+      }
     } catch (e) {
       if (!mounted) return;
       if (silencioso) return;
@@ -89,9 +132,31 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     }
   }
 
-  void _toggleLinea(int idPedido, int idLinea, bool? v) {
+  Future<void> _sonidoPedidoNuevo() async {
+    final player = _avisoPlayer;
+    if (player != null) {
+      try {
+        await player.stop();
+        await player.play(
+          AssetSource('cocina.mp3'),
+          volume: 1.0,
+        );
+        return;
+      } catch (e) {
+        debugPrint('[pendientes_servir] audioplayers: $e');
+      }
+    }
+
+    try {
+      await SystemSound.play(SystemSoundType.alert);
+    } catch (e) {
+      debugPrint('[pendientes_servir] SystemSound: $e');
+    }
+  }
+
+  void _toggleLinea(String clave, int idLinea, bool? v) {
     setState(() {
-      final set = _seleccion.putIfAbsent(idPedido, () => {});
+      final set = _seleccion.putIfAbsent(clave, () => {});
       if (v == true) {
         set.add(idLinea);
       } else {
@@ -101,15 +166,16 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
   }
 
   void _seleccionarTodo(PedidoPendienteServir pedido) {
+    final clave = _claveSeleccion(pedido);
     setState(() {
       _seleccion
-          .putIfAbsent(pedido.idPedido, () => {})
+          .putIfAbsent(clave, () => {})
           .addAll(pedido.lineas.map((l) => l.idLinea));
     });
   }
 
   Future<void> _hechoPedido(PedidoPendienteServir pedido) async {
-    final ids = _seleccion[pedido.idPedido]?.toList() ?? [];
+    final ids = _lineasSeleccionadas(pedido).toList();
     if (ids.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Marca al menos un producto')),
@@ -128,7 +194,7 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
           ),
         );
       } else {
-        _seleccion[pedido.idPedido]?.clear();
+        _seleccion[_claveSeleccion(pedido)]?.clear();
       }
       await _cargar();
     } catch (e) {
@@ -286,9 +352,21 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     );
   }
 
+  String _horaCorta(String horaPedido) {
+    if (horaPedido.length >= 16) {
+      return horaPedido.substring(11, 16);
+    }
+    if (horaPedido.length >= 5) {
+      return horaPedido.substring(horaPedido.length - 5);
+    }
+    return horaPedido;
+  }
+
   Widget _tarjetaPedido(PedidoPendienteServir pedido) {
-    final sel = _seleccion[pedido.idPedido] ?? {};
+    final clave = _claveSeleccion(pedido);
+    final sel = _lineasSeleccionadas(pedido);
     final cliente = pedido.nombreCliente.trim();
+    final hora = pedido.horaPedido.trim();
     return Card(
       color: AppTheme.colorTarjeta,
       clipBehavior: Clip.antiAlias,
@@ -306,11 +384,22 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      'Mesa ${pedido.idMesa}',
-                      style: TextStyle(
-                        fontSize: _fs(17),
-                        fontWeight: FontWeight.bold,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTheme.colorPrimario,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Mesa ${pedido.idMesa}',
+                        style: TextStyle(
+                          fontSize: _fs(17),
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -332,6 +421,14 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                     ),
                   ],
                 ),
+                if (hora.isNotEmpty)
+                  Text(
+                    _horaCorta(hora),
+                    style: TextStyle(
+                      color: AppTheme.colorTextoGris,
+                      fontSize: _fs(12),
+                    ),
+                  ),
                 if (cliente.isNotEmpty)
                   Text(
                     cliente,
@@ -349,15 +446,16 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: pedido.lineas
-                  .map((l) => _filaLinea(pedido.idPedido, l, sel))
+                  .map((l) => _filaLinea(clave, l, sel))
                   .toList(),
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
             child: FilledButton(
-              onPressed:
-                  _marcando || sel.isEmpty ? null : () => _hechoPedido(pedido),
+              onPressed: _marcando || sel.isEmpty
+                  ? null
+                  : () => _hechoPedido(pedido),
               child: Text('Hecho', style: TextStyle(fontSize: _fs(14))),
             ),
           ),
@@ -366,7 +464,7 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     );
   }
 
-  Widget _filaLinea(int idPedido, LineaPendienteServir l, Set<int> sel) {
+  Widget _filaLinea(String clave, LineaPendienteServir l, Set<int> sel) {
     final checked = sel.contains(l.idLinea);
     final titulo = l.cantidad > 1 ? '${l.nombre}  ×${l.cantidad}' : l.nombre;
     final catalogo = context.read<CatalogoProvider>();
@@ -386,7 +484,7 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
           Checkbox(
             value: checked,
             onChanged:
-                _marcando ? null : (v) => _toggleLinea(idPedido, l.idLinea, v),
+                _marcando ? null : (v) => _toggleLinea(clave, l.idLinea, v),
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: VisualDensity.compact,
           ),

@@ -119,7 +119,7 @@ function endpointServicioPendientes(array $payload): void {
     $idsImp = _impresoraIdsFiltro($payload, $db);
 
     $sql = 'SELECT d.id_linea, d.id_pedido, d.id_producto, d.cantidad, d.comentario,
-                   d.nombre_producto_pantalla, d.opciones_elegidas, d.orden,
+                   d.nombre_producto_pantalla, d.opciones_elegidas, d.orden, d.hora_pedido,
                    c.id_mesa, COALESCE(c.nombre_cliente, \'\') AS nombre_cliente,
                    p.id_impresora
               FROM pedido_detalles d
@@ -144,9 +144,14 @@ function endpointServicioPendientes(array $payload): void {
     $pedidos = [];
     foreach ($rows as $r) {
         $idPedido = (int)$r['id_pedido'];
-        if (!isset($pedidos[$idPedido])) {
-            $pedidos[$idPedido] = [
+        $horaPedido = (string)$r['hora_pedido'];
+        // Un envío a cocina = misma hora_pedido; lotes distintos → tarjetas separadas.
+        $idGrupo = $idPedido . '|' . $horaPedido;
+        if (!isset($pedidos[$idGrupo])) {
+            $pedidos[$idGrupo] = [
+                'id_grupo'       => $idGrupo,
                 'id_pedido'      => $idPedido,
+                'hora_pedido'    => $horaPedido,
                 'id_mesa'        => (int)$r['id_mesa'],
                 'nombre_cliente' => (string)$r['nombre_cliente'],
                 'lineas'         => [],
@@ -159,7 +164,7 @@ function endpointServicioPendientes(array $payload): void {
             $opciones = [];
         }
         $idProducto = (int)$r['id_producto'];
-        $pedidos[$idPedido]['lineas'][] = [
+        $pedidos[$idGrupo]['lineas'][] = [
             'id_linea'                 => (int)$r['id_linea'],
             'id_producto'              => $idProducto,
             'cantidad'                 => (int)$r['cantidad'],
