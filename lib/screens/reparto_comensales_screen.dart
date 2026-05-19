@@ -445,64 +445,14 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
   Future<void> _editarNombreComensal(int c) async {
     final i = c - 1;
     if (i < 0 || i >= _nombresComensales.length) return;
-    final controller = TextEditingController(text: _nombresComensales[i]);
     final ancho = MediaQuery.sizeOf(context).width;
     final nuevo = await showDialog<String>(
       context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: AppTheme.colorTarjeta,
-        alignment: Alignment.topCenter,
-        insetPadding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: SizedBox(
-            width: ancho - 48,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    autofocus: true,
-                    maxLength: 24,
-                    decoration: const InputDecoration(
-                      hintText: 'Ej. Juan, María…',
-                      counterText: '',
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                    ),
-                    textCapitalization: TextCapitalization.words,
-                    onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 40),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    minimumSize: const Size(0, 40),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text('Guardar'),
-                ),
-              ],
-            ),
-          ),
-        ),
+      builder: (ctx) => _DialogEditarNombreComensal(
+        nombreInicial: _nombresComensales[i],
+        ancho: ancho,
       ),
     );
-    controller.dispose();
     if (!mounted || nuevo == null) return;
     setState(() {
       _nombresComensales[i] = nuevo.isEmpty ? 'Comensal $c' : nuevo;
@@ -1101,16 +1051,20 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
 
     final botonImprimir = Tooltip(
       message: _tooltipImprimir,
-      child: FilledButton.icon(
+      child: FilledButton(
         onPressed: (_imprimiendo || !_repartoCompleto) ? null : _imprimir,
-        icon: _imprimiendo
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.all(12),
+          minimumSize: const Size(48, 48),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: _imprimiendo
             ? const SizedBox(
-                width: 20,
-                height: 20,
+                width: 22,
+                height: 22,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Icons.print, size: 20),
-        label: Text(_imprimiendo ? 'Enviando…' : 'Imprimir'),
+            : const Icon(Icons.print, size: 26),
       ),
     );
 
@@ -1218,5 +1172,96 @@ class _RepartoComensalesScreenState extends State<RepartoComensalesScreen> {
   String _etiquetaAsignacion(int a) {
     if (a <= 0) return 'Sin asignar';
     return _nombreComensal(a);
+  }
+}
+
+class _DialogEditarNombreComensal extends StatefulWidget {
+  final String nombreInicial;
+  final double ancho;
+
+  const _DialogEditarNombreComensal({
+    required this.nombreInicial,
+    required this.ancho,
+  });
+
+  @override
+  State<_DialogEditarNombreComensal> createState() =>
+      _DialogEditarNombreComensalState();
+}
+
+class _DialogEditarNombreComensalState
+    extends State<_DialogEditarNombreComensal> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.nombreInicial);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _guardar() {
+    Navigator.pop(context, _controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.colorTarjeta,
+      alignment: Alignment.topCenter,
+      insetPadding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: SizedBox(
+          width: widget.ancho - 48,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  maxLength: 24,
+                  decoration: const InputDecoration(
+                    hintText: 'Ej. Juan, María…',
+                    counterText: '',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                  onSubmitted: (_) => _guardar(),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 40),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: _guardar,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 40),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

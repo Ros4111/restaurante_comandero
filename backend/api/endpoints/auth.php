@@ -15,7 +15,9 @@ function endpointLogin(): void {
     }
 
     $db = getDB();
-    $st = $db->prepare('SELECT id_usuario, nombre_usuario, password_hash, permisos
+    ensureImpresoraColumnUsuarios($db);
+    $st = $db->prepare('SELECT id_usuario, nombre_usuario, password_hash, permisos,
+                                COALESCE(impresora, 0) AS impresora
                          FROM usuarios WHERE id_usuario = ? AND activo = 1');
     $st->execute([$idUsuario]);
     $user = $st->fetch();
@@ -26,20 +28,24 @@ function endpointLogin(): void {
         jsonError('Contraseña incorrecta', 401);
     }
 
+    $idImpresora = (int)($user['impresora'] ?? 0);
+
     $token = JWT::encode([
-        'sub'  => $user['id_usuario'],
-        'name' => $user['nombre_usuario'],
-        'rol'  => $user['permisos'],
-        'iat'  => time(),
-        'exp'  => time() + JWT_EXPIRY,
+        'sub'       => $user['id_usuario'],
+        'name'      => $user['nombre_usuario'],
+        'rol'       => $user['permisos'],
+        'impresora' => $idImpresora,
+        'iat'       => time(),
+        'exp'       => time() + JWT_EXPIRY,
     ]);
 
     jsonOk([
         'token'    => $token,
         'usuario'  => [
-            'id'       => $user['id_usuario'],
-            'nombre'   => $user['nombre_usuario'],
-            'permisos' => $user['permisos'],
+            'id'        => $user['id_usuario'],
+            'nombre'    => $user['nombre_usuario'],
+            'permisos'  => $user['permisos'],
+            'impresora' => $idImpresora,
         ],
     ]);
 }

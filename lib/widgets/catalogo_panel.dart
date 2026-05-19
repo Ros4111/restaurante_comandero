@@ -12,10 +12,13 @@ const _colorTextoCategoria = Color.fromARGB(255, 99, 148, 100);
 class CatalogoPanel extends StatefulWidget {
   final void Function(Producto) onTap;
   final void Function(Producto) onLongPress;
+
   /// Búsqueda por texto en pantalla de pedido: si está activa no se muestran categorías.
   final bool busquedaActiva;
+
   /// true ⇒ coincide con campo [Producto.filtro] (`mm` como prefijo en el campo padre).
   final bool modoCampoFiltro;
+
   /// Texto a buscar (sin el prefijo `mm` si correspondía).
   final String terminoBusqueda;
 
@@ -54,11 +57,11 @@ class CatalogoPanelState extends State<CatalogoPanel> {
     final modoBusqueda = widget.busquedaActiva;
     late final List<Producto> resultadoBusqueda;
     if (modoBusqueda) {
-      resultadoBusqueda = widget.modoCampoFiltro &&
-              widget.terminoBusqueda.trim().isEmpty
-          ? const <Producto>[]
-          : catalogo.productosPorBusquedaPedido(widget.terminoBusqueda,
-              enFiltro: widget.modoCampoFiltro);
+      resultadoBusqueda =
+          widget.modoCampoFiltro && widget.terminoBusqueda.trim().isEmpty
+              ? const <Producto>[]
+              : catalogo.productosPorBusquedaPedido(widget.terminoBusqueda,
+                  enFiltro: widget.modoCampoFiltro);
     } else {
       resultadoBusqueda = const [];
     }
@@ -66,16 +69,16 @@ class CatalogoPanelState extends State<CatalogoPanel> {
     final subcats = modoBusqueda
         ? const <Categoria>[]
         : catalogo.categoriasHijo(_currentId);
-    final prods =
-        modoBusqueda ? resultadoBusqueda : catalogo.productosDeCategoria(_currentId);
+    final prods = modoBusqueda
+        ? resultadoBusqueda
+        : catalogo.productosDeCategoria(_currentId);
     final hayAtras = !modoBusqueda && _stack.length > 1;
 
     String? etiquetaCabecera;
     if (!modoBusqueda && !hayAtras) {
       etiquetaCabecera = 'Menú';
     } else if (modoBusqueda) {
-      if (widget.modoCampoFiltro &&
-          widget.terminoBusqueda.trim().isEmpty) {
+      if (widget.modoCampoFiltro && widget.terminoBusqueda.trim().isEmpty) {
         etiquetaCabecera = 'Filtrar campo clave (añade texto tras mm)';
       } else {
         etiquetaCabecera = widget.modoCampoFiltro ? 'Por filtro' : 'Por nombre';
@@ -138,8 +141,8 @@ class CatalogoPanelState extends State<CatalogoPanel> {
                             widget.terminoBusqueda.trim().isEmpty
                         ? 'Escribe después de mm el texto del campo filtro (ej. mmCL)'
                         : 'No hay coincidencias',
-                    style:
-                        TextStyle(color: AppTheme.colorTextoGris, fontSize: 15),
+                    style: const TextStyle(
+                        color: AppTheme.colorTextoGris, fontSize: 15),
                   ),
                 ),
               // Subcategorías — sin icono, sin padding extra

@@ -158,4 +158,14 @@ if (preg_match('#^/pedidos/(\d+)/guardar$#', $uri, $m) && $method === 'POST') {
     endpointPedidoGuardar($payload, (int)$m[1]);
 }
 
+// Servicio en mesa (líneas pendientes de servir)
+if ($uri === '/servicio/pendientes' && $method === 'GET') {
+    require __DIR__ . '/endpoints/servicio.php';
+    endpointServicioPendientes($payload);
+}
+if ($uri === '/servicio/marcar-servido' && $method === 'POST') {
+    require __DIR__ . '/endpoints/servicio.php';
+    endpointServicioMarcarServido($payload);
+}
+
 jsonError('Ruta no encontrada', 404);

@@ -2815,7 +2815,8 @@ CREATE TABLE `usuarios` (
   `salt` varchar(32) NOT NULL,
   `permisos` varchar(20) NOT NULL DEFAULT 'camarero',
   `orden` int UNSIGNED NOT NULL DEFAULT '0',
-  `activo` tinyint(1) NOT NULL DEFAULT '1'
+  `activo` tinyint(1) NOT NULL DEFAULT '1',
+  `impresora` int UNSIGNED NOT NULL DEFAULT '0'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --

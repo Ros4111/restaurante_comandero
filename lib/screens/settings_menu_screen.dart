@@ -9,6 +9,7 @@ import '../services/catalogo_provider.dart';
 import '../services/kiosk_android.dart';
 import '../services/sunmi_service.dart';
 import '../utils/theme.dart';
+import 'cashlogy_config_screen.dart';
 import 'config_screen.dart';
 import 'datafono_sim_screen.dart';
 import 'dictado_screen.dart';
@@ -84,6 +85,13 @@ class SettingsMenuScreen extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const DatafonoSimScreen()),
+    );
+  }
+
+  void _openCashlogy(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CashlogyConfigScreen()),
     );
   }
 
@@ -167,19 +175,28 @@ class SettingsMenuScreen extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
+                  onPressed: () => _openCashlogy(context),
+                  icon: const Icon(Icons.toll_outlined),
+                  label: const Text('Cashlogy (cobro efectivo)'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
                   onPressed: () => _openDictado(context),
                   icon: const Icon(Icons.mic_outlined),
                   label: const Text('Dictado'),
                 ),
               ),
-              if (sesion.esAdmin) ...[
+              if (sesion.esUsuarioPrincipal) ...[
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () => _openCrudUsuarios(context),
                     icon: const Icon(Icons.group),
-                    label: const Text('CRUD usuarios'),
+                    label: const Text('Gestión de usuarios'),
                   ),
                 ),
               ],

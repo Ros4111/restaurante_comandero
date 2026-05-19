@@ -201,10 +201,110 @@ class ApiService extends ChangeNotifier {
 
   // ── Usuarios ───────────────────────────────────────────────
   Future<List<Usuario>> getUsuarios() async {
-    final list = await _requestList('/usuarios/lista');
-    return list
-        .map((j) => Usuario.fromJson(j as Map<String, dynamic>))
-        .toList();
+    const path = '/usuarios/lista';
+    const tag = '[getUsuarios]';
+
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+        final uri = Uri.parse('$_baseUrl/api$path');
+        debugPrint('$tag GET $uri (intento ${attempt + 1}/3)');
+
+        final res = await http
+            .get(uri, headers: _headers)
+            .timeout(const Duration(seconds: 8));
+
+        debugPrint('$tag status=${res.statusCode}');
+        debugPrint('$tag body=${res.body}');
+
+        _setReachable(true);
+
+        if (res.statusCode != 200) {
+          debugPrint(
+              '$tag ERROR HTTP ${res.statusCode}: cuerpo no procesado como OK');
+          throw ApiException(
+            'HTTP ${res.statusCode}: ${res.body.length > 200 ? '${res.body.substring(0, 200)}…' : res.body}',
+            statusCode: res.statusCode,
+          );
+        }
+
+        final dynamic decoded;
+        try {
+          decoded = json.decode(res.body);
+        } catch (e, st) {
+          debugPrint('$tag ERROR JSON inválido: $e');
+          debugPrint('$tag $st');
+          throw ApiException('Respuesta no es JSON válido');
+        }
+
+        if (decoded is! Map<String, dynamic>) {
+          debugPrint(
+              '$tag ERROR: raíz JSON inesperada (${decoded.runtimeType})');
+          throw ApiException('Formato de respuesta inesperado');
+        }
+
+        if (decoded['ok'] != true) {
+          final err = decoded['error']?.toString() ?? 'sin mensaje';
+          debugPrint('$tag ERROR servidor (ok!=true): $err');
+          throw ApiException(err, statusCode: res.statusCode);
+        }
+
+        final data = decoded['data'];
+        if (data == null) {
+          debugPrint('$tag ERROR: campo "data" ausente');
+          throw ApiException('Respuesta sin lista de usuarios');
+        }
+        if (data is! List) {
+          debugPrint(
+              '$tag ERROR: "data" no es lista (${data.runtimeType}): $data');
+          throw ApiException('Lista de usuarios con formato incorrecto');
+        }
+
+        final usuarios = <Usuario>[];
+        for (var i = 0; i < data.length; i++) {
+          final item = data[i];
+          if (item is! Map<String, dynamic>) {
+            debugPrint('$tag AVISO ítem[$i] ignorado (no es objeto): $item');
+            continue;
+          }
+          try {
+            usuarios.add(Usuario.fromJson(item));
+          } catch (e, st) {
+            debugPrint('$tag ERROR parseando ítem[$i]: $item');
+            debugPrint('$tag $e');
+            debugPrint('$tag $st');
+          }
+        }
+
+        if (usuarios.isEmpty && data.isNotEmpty) {
+          debugPrint(
+              '$tag AVISO: ${data.length} ítems en respuesta pero ningún usuario válido');
+        } else {
+          debugPrint('$tag OK: ${usuarios.length} usuario(s)');
+        }
+
+        return usuarios;
+      } on TimeoutException {
+        debugPrint('$tag TIMEOUT conectando con el servidor');
+        _setReachable(false);
+        if (attempt == 2) rethrow;
+        await Future.delayed(const Duration(seconds: 2));
+      } on ApiException catch (e) {
+        debugPrint('$tag ApiException: ${e.message} (HTTP ${e.statusCode})');
+        if (attempt == 2) rethrow;
+        await Future.delayed(const Duration(seconds: 2));
+      } catch (e, st) {
+        debugPrint('$tag EXCEPCIÓN: $e');
+        debugPrint('$tag $st');
+        _setReachable(false);
+        if (attempt == 2) {
+          throw ApiException('Sin conexión al servidor');
+        }
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    }
+
+    debugPrint('$tag ERROR: agotados reintentos');
+    throw ApiException('Sin conexión al servidor');
   }
 
   // ── Login ──────────────────────────────────────────────────
@@ -215,6 +315,22 @@ class ApiService extends ChangeNotifier {
       'password_sha256': _passwordHash(nombreUsuario, password),
     });
     return data;
+  }
+
+  // ── Servicio en mesa ─────────────────────────────────────────
+  Future<List<PedidoPendienteServir>> getServicioPendientes() async {
+    final list = await _requestList('/servicio/pendientes');
+    return list
+        .map((j) => PedidoPendienteServir.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<int> marcarLineasServidas(List<int> idsLinea) async {
+    if (idsLinea.isEmpty) return 0;
+    final data = await _request('POST', '/servicio/marcar-servido', body: {
+      'ids_linea': idsLinea,
+    });
+    return int.parse((data['actualizadas'] ?? 0).toString());
   }
 
   /// Registra o actualiza el dispositivo actual en la tabla `dispositivos`.

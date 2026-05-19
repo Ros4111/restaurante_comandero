@@ -108,6 +108,28 @@ class SesionProvider extends ChangeNotifier {
       _usuario?.permisos == 'supervisor' || _usuario?.permisos == 'admin';
   bool get esAdmin => _usuario?.permisos == 'admin';
 
+  /// Solo el usuario id 1 gestiona el CRUD de usuarios.
+  bool get esUsuarioPrincipal => _usuario?.id == 1;
+
+  bool get esServicio => _usuario?.permisos == 'servicio';
+
+  bool get esPantallaPendientesServir {
+    if ((_usuario?.impresora ?? 0) > 0) return true;
+    final p = _usuario?.permisos;
+    return p == 'servicio' || p == 'cocina' || p == 'barra';
+  }
+
+  String get tituloPendientesServir {
+    switch (_usuario?.permisos) {
+      case 'cocina':
+        return 'Cocina — pendientes';
+      case 'barra':
+        return 'Barra — pendientes';
+      default:
+        return 'Pendientes de servir';
+    }
+  }
+
   String? nombreUsuario(int? idUsuario) {
     if (idUsuario == null) return null;
     try {

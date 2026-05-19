@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/catalogo_provider.dart';
 import '../utils/theme.dart';
 import 'mesas_screen.dart';
+import 'pendientes_servir_screen.dart';
 import 'config_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -19,7 +20,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   List<Usuario> _usuarios = [];
   Usuario? _seleccionado;
-  String _pass = '';          // contraseña como string interno
+  String _pass = ''; // contraseña como string interno
   bool _loading = true;
   bool _logging = false;
   String? _error;
@@ -37,21 +38,32 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _borrar() {
-    if (_pass.isNotEmpty) setState(() => _pass = _pass.substring(0, _pass.length - 1));
+    if (_pass.isNotEmpty) {
+      setState(() => _pass = _pass.substring(0, _pass.length - 1));
+    }
   }
 
   // ── Carga de usuarios ───────────────────────────────────────
   Future<void> _cargarUsuarios() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     final api = context.read<ApiService>();
     try {
       final lista = await api.getUsuarios();
       if (mounted) context.read<SesionProvider>().setUsuarios(lista);
-      setState(() { _usuarios = lista; _loading = false; });
+      setState(() {
+        _usuarios = lista;
+        _loading = false;
+      });
     } catch (e) {
       _intentosFallo++;
       if (_intentosFallo >= 3) {
-        setState(() { _error = 'Imposible conectar con el servidor'; _loading = false; });
+        setState(() {
+          _error = 'Imposible conectar con el servidor';
+          _loading = false;
+        });
       } else {
         await Future.delayed(const Duration(seconds: 2));
         _cargarUsuarios();
@@ -62,30 +74,54 @@ class _LoginScreenState extends State<LoginScreen> {
   // ── Login ───────────────────────────────────────────────────
   Future<void> _login() async {
     if (_seleccionado == null || _pass.isEmpty) return;
-    setState(() { _logging = true; _error = null; });
+    setState(() {
+      _logging = true;
+      _error = null;
+    });
     final api = context.read<ApiService>();
     try {
-      final data = await api.login(_seleccionado!.id, _seleccionado!.nombre, _pass);
+      final data =
+          await api.login(_seleccionado!.id, _seleccionado!.nombre, _pass);
       api.setToken(data['token']);
+
+      final permisos = data['usuario']['permisos']?.toString() ?? 'camarero';
+      final impresora =
+          int.tryParse(data['usuario']['impresora']?.toString() ?? '0') ?? 0;
+      final esPendientesServir = impresora > 0 ||
+          permisos == 'servicio' ||
+          permisos == 'cocina' ||
+          permisos == 'barra';
 
       final catalogo = await api.getCatalogo();
       if (mounted) context.read<CatalogoProvider>().cargar(catalogo);
 
       if (!mounted) return;
       context.read<SesionProvider>().login(Usuario(
-        id: _seleccionado!.id,
-        nombre: data['usuario']['nombre'],
-        permisos: data['usuario']['permisos'],
-        orden: 0,
-      ));
+            id: _seleccionado!.id,
+            nombre: data['usuario']['nombre']?.toString() ??
+                _seleccionado!.nombre,
+            permisos: permisos,
+            orden: _seleccionado!.orden,
+            impresora: impresora,
+          ));
 
       // Registro del dispositivo en segundo plano (fire-and-forget)
       api.registrarDispositivo();
 
       Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const MesasScreen()));
+        context,
+        MaterialPageRoute(
+          builder: (_) => esPendientesServir
+              ? const PendientesServirScreen()
+              : const MesasScreen(),
+        ),
+      );
     } catch (e) {
-      setState(() { _error = e.toString(); _logging = false; _pass = ''; });
+      setState(() {
+        _error = e.toString();
+        _logging = false;
+        _pass = '';
+      });
     }
   }
 
@@ -115,8 +151,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           Icon(Icons.wifi_off, color: Colors.white, size: 16),
                           SizedBox(width: 8),
                           Text('SERVIDOR INACCESIBLE',
-                              style: TextStyle(color: Colors.white,
-                                  fontWeight: FontWeight.bold, fontSize: 14)),
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14)),
                         ],
                       ),
                     ),
@@ -124,13 +162,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   // Cuerpo principal estirado
                   Expanded(
                     child: _loading
-                        ? const Center(child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 16),
-                              Text('Cargando usuarios...'),
-                            ]))
+                        ? const Center(
+                            child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text('Cargando usuarios...'),
+                              ]))
                         : _buildForm(),
                   ),
                 ],
@@ -141,7 +180,8 @@ class _LoginScreenState extends State<LoginScreen> {
               right: 4,
               child: IconButton(
                 tooltip: 'Cerrar aplicación',
-                icon: const Icon(Icons.power_settings_new, color: Colors.white70),
+                icon:
+                    const Icon(Icons.power_settings_new, color: Colors.white70),
                 onPressed: _cerrarApp,
               ),
             ),
@@ -158,9 +198,12 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.cloud_off, size: 56, color: AppTheme.colorAcento),
           const SizedBox(height: 12),
-          Text(_error!, style: const TextStyle(color: AppTheme.colorAcento, fontSize: 16)),
+          Text(_error!,
+              style:
+                  const TextStyle(color: AppTheme.colorAcento, fontSize: 16)),
           const SizedBox(height: 20),
-          ElevatedButton(onPressed: _cargarUsuarios, child: const Text('Reintentar')),
+          ElevatedButton(
+              onPressed: _cargarUsuarios, child: const Text('Reintentar')),
           const SizedBox(height: 10),
           TextButton(
             onPressed: () => Navigator.pushReplacement(
@@ -178,7 +221,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // Formulario principal — ocupa toda la altura disponible
     return Container(
-      color: AppTheme.colorTarjeta,   // fondo gris estirado de arriba a abajo
+      color: AppTheme.colorTarjeta, // fondo gris estirado de arriba a abajo
       child: Column(
         children: [
           // ── Título ──────────────────────────────────────────
@@ -351,15 +394,17 @@ class _Teclado extends StatelessWidget {
     return Expanded(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: nums.map((n) => Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(4),
-            child: _BotonNum(
-              label: n,
-              onTap: () => onTecla(n),
-            ),
-          ),
-        )).toList(),
+        children: nums
+            .map((n) => Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: _BotonNum(
+                      label: n,
+                      onTap: () => onTecla(n),
+                    ),
+                  ),
+                ))
+            .toList(),
       ),
     );
   }
@@ -398,8 +443,10 @@ class _Teclado extends StatelessWidget {
                     : AppTheme.colorPrimario.withValues(alpha: 0.35),
                 onTap: onOk,
                 child: const Text('OK',
-                    style: TextStyle(color: Colors.white,
-                        fontSize: 20, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold)),
               ),
             ),
           ),

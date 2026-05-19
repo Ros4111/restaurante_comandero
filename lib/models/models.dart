@@ -6,18 +6,23 @@ class Usuario {
   final String nombre;
   final String permisos;
   final int orden;
+  /// 0 = ninguna; >0 = id_impresora para pantalla de servicio en mesa.
+  final int impresora;
 
-  Usuario(
-      {required this.id,
-      required this.nombre,
-      required this.permisos,
-      required this.orden});
+  Usuario({
+    required this.id,
+    required this.nombre,
+    required this.permisos,
+    required this.orden,
+    this.impresora = 0,
+  });
 
   factory Usuario.fromJson(Map<String, dynamic> j) => Usuario(
         id: int.parse(j['id_usuario'].toString()),
         nombre: j['nombre_usuario'] ?? '',
         permisos: j['permisos'] ?? 'camarero',
         orden: int.parse((j['orden'] ?? 0).toString()),
+        impresora: int.tryParse((j['impresora'] ?? 0).toString()) ?? 0,
       );
 }
 
@@ -352,5 +357,77 @@ class MesaResumen {
         horaCreacion: j['hora_creacion']?.toString(),
         horaUltimaAccion: j['hora_ultima_accion']?.toString(),
         totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
+      );
+}
+
+/// Línea pendiente de servir en mesa (servido = 2000-01-01).
+class LineaPendienteServir {
+  final int idLinea;
+  final int idProducto;
+  final int cantidad;
+  final String comentario;
+  final String nombre;
+  final Map<int, OpcionElegida> opcionesElegidas;
+
+  const LineaPendienteServir({
+    required this.idLinea,
+    required this.idProducto,
+    required this.cantidad,
+    required this.comentario,
+    required this.nombre,
+    this.opcionesElegidas = const {},
+  });
+
+  factory LineaPendienteServir.fromJson(Map<String, dynamic> j) {
+    return LineaPendienteServir(
+      idLinea: int.parse(j['id_linea'].toString()),
+      idProducto: int.parse((j['id_producto'] ?? 0).toString()),
+      cantidad: int.parse((j['cantidad'] ?? 1).toString()),
+      comentario: j['comentario']?.toString() ?? '',
+      nombre: j['nombre_producto_pantalla']?.toString() ?? '',
+      opcionesElegidas: _opcionesDesdeJson(j['opciones_elegidas']),
+    );
+  }
+
+  static Map<int, OpcionElegida> _opcionesDesdeJson(dynamic raw) {
+    final opciones = <int, OpcionElegida>{};
+    if (raw is! Map) return opciones;
+    raw.forEach((k, v) {
+      final idGrupo = int.tryParse(k.toString());
+      if (idGrupo == null) return;
+      if (v is Map) {
+        opciones[idGrupo] =
+            OpcionElegida.fromJson(Map<String, dynamic>.from(v));
+      } else if (v != null) {
+        opciones[idGrupo] =
+            OpcionElegida(nombre: v.toString(), predeterminado: false);
+      }
+    });
+    return opciones;
+  }
+}
+
+class PedidoPendienteServir {
+  final int idPedido;
+  final int idMesa;
+  final String nombreCliente;
+  final List<LineaPendienteServir> lineas;
+
+  const PedidoPendienteServir({
+    required this.idPedido,
+    required this.idMesa,
+    required this.nombreCliente,
+    required this.lineas,
+  });
+
+  factory PedidoPendienteServir.fromJson(Map<String, dynamic> j) =>
+      PedidoPendienteServir(
+        idPedido: int.parse(j['id_pedido'].toString()),
+        idMesa: int.parse(j['id_mesa'].toString()),
+        nombreCliente: j['nombre_cliente']?.toString() ?? '',
+        lineas: (j['lineas'] as List? ?? [])
+            .map((e) =>
+                LineaPendienteServir.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 }

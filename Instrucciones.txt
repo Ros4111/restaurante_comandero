@@ -49,7 +49,7 @@ o	UI moderna y limpia
 ________________________________________
 3️⃣ Base de Datos
 Seguridad
-•	Password almacenado en SHA256 + salt
+•	Password almacenado en SHA256
 •	Estado_mesa es VARCHAR (no ENUM). Los cambios de estado los realiza el camarero de forma manual
 ________________________________________
 Tablas principales

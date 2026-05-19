@@ -33,6 +33,26 @@ function requireRole(array $payload, array $roles): void {
     if (!in_array($payload['rol'], $roles, true)) jsonError('Sin permisos', 403);
 }
 
+/** Solo el usuario con id_usuario = 1 (administrador principal). */
+function requireUsuarioPrincipal(array $payload): void {
+    if ((int)($payload['sub'] ?? 0) !== 1) {
+        jsonError('Solo el administrador principal puede realizar esta acción', 403);
+    }
+}
+
+function ensureImpresoraColumnUsuarios(PDO $db): void {
+    try {
+        $check = $db->query("SHOW COLUMNS FROM usuarios LIKE 'impresora'");
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                'ALTER TABLE usuarios ADD COLUMN impresora INT UNSIGNED NOT NULL DEFAULT 0 AFTER activo'
+            );
+        }
+    } catch (Throwable $e) {
+        // El SELECT posterior fallará con mensaje claro si falta la columna.
+    }
+}
+
 function getBody(): array {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw ?: '{}', true);

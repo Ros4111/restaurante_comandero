@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/api_service.dart';
+import '../services/cashlogy_service.dart';
 import '../services/catalogo_provider.dart';
 import '../utils/precio_redondeo.dart';
 import '../utils/theme.dart';
@@ -242,7 +243,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                    'Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}.'),
+                  'Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}. '
+                  'Después se cobrará el total en Cashlogy antes de cerrar en el servidor.',
+                ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: confirmCtrl,
@@ -276,11 +279,77 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     if (ok != true) return;
     final guardadoOk = await _guardar();
     if (!guardadoOk) return;
+
+    final catalogo = context.read<CatalogoProvider>();
+    final mesaPv = context.read<MesaProvider>();
+    final totales = _calcularTotales(mesaPv.lineas, catalogo);
+    if (totales.total > 0) {
+      final cobrado = await _cobrarEnCashlogy(totales.total);
+      if (!cobrado) return;
+    }
+
     try {
       await api.cerrarMesa(widget.idPedido);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       _showError(e.toString());
+    }
+  }
+
+  Future<bool> _cobrarEnCashlogy(double totalEuros) async {
+    final centimos = CashlogyService.eurosACentimos(totalEuros);
+    if (centimos <= 0) return true;
+
+    if (!mounted) return false;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          backgroundColor: AppTheme.colorTarjeta,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                'Cobrando ${totalEuros.toStringAsFixed(2)} € en Cashlogy…\n'
+                'Introduce el efectivo en la máquina.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final resultado = await CashlogyService().cobrar(
+        importeCentimos: centimos,
+        numeroOperacion: 'M${widget.idMesa}P${widget.idPedido}',
+      );
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      if (!resultado.ok) {
+        _showError(resultado.message ?? 'Cobro no completado en Cashlogy');
+        return false;
+      }
+      if (mounted &&
+          resultado.message != null &&
+          resultado.message!.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(resultado.message!)),
+        );
+      }
+      return true;
+    } on CashlogyException catch (e) {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      _showError(e.message);
+      return false;
+    } catch (e) {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      _showError(e.toString());
+      return false;
     }
   }
 
