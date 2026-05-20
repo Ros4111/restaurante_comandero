@@ -217,6 +217,14 @@ class _MesasScreenState extends State<MesasScreen> {
     if (_cargandoMesa) return;
     final sesion = context.read<SesionProvider>();
 
+    // ¿Está bloqueada por un terminal distinto al nuestro?
+    final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
+    final bloqueadaPorOtro = serieBloqueo.isNotEmpty &&
+        _terminalSerie != null &&
+        serieBloqueo != _terminalSerie;
+    final nombreBloqueador =
+        (mesa.nombreUsuarioBloqueo ?? serieBloqueo).trim();
+
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppTheme.colorTarjeta,
@@ -251,6 +259,22 @@ class _MesasScreenState extends State<MesasScreen> {
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.bold),
                 ),
+                // Aviso de bloqueo activo
+                if (bloqueadaPorOtro) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.lock, color: Colors.orange, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Bloqueada por $nombreBloqueador',
+                        style: const TextStyle(
+                            color: Colors.orange, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 10),
                 // Chip de importe
                 Container(
@@ -303,12 +327,107 @@ class _MesasScreenState extends State<MesasScreen> {
                       _traspasarMesa(mesa);
                     },
                   ),
+                // Opción: Expulsar terminal bloqueante (solo admin, solo si hay bloqueo ajeno)
+                if (sesion.esAdmin && bloqueadaPorOtro)
+                  ListTile(
+                    leading: const Icon(Icons.phonelink_erase,
+                        color: Colors.redAccent),
+                    title: const Text('Expulsar terminal bloqueante',
+                        style: TextStyle(color: Colors.redAccent)),
+                    subtitle: Text(
+                      'Liberar el bloqueo de $nombreBloqueador y tomar el control',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _expulsarTerminal(mesa, nombreBloqueador);
+                    },
+                  ),
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _expulsarTerminal(
+      MesaResumen mesa, String nombreBloqueador) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Expulsar terminal'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RichText(
+              text: TextSpan(
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                children: [
+                  const TextSpan(text: 'El terminal de '),
+                  TextSpan(
+                    text: nombreBloqueador,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(
+                    text:
+                        ' perderá el bloqueo de la mesa ${mesa.idMesa} de inmediato.',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Si ese terminal estaba editando el pedido y guarda después, '
+              'el servidor rechazará los cambios (bloqueo perdido).',
+              style: TextStyle(
+                  color: AppTheme.colorTextoGris,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+            icon: const Icon(Icons.phonelink_erase, size: 18),
+            label: const Text('Expulsar y entrar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final api = context.read<ApiService>();
+    try {
+      // Expulsar al otro terminal (el backend transfiere el bloqueo al nuestro)
+      await api.expulsarUsuario(mesa.idPedido);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            'Terminal de $nombreBloqueador expulsado · entrando en mesa ${mesa.idMesa}'),
+        backgroundColor: Colors.orange[800],
+        duration: const Duration(seconds: 3),
+      ));
+      // Entrar directamente a la mesa (el bloqueo ya es nuestro)
+      _entrarMesa(mesa);
+    } catch (e) {
+      _showError(e.toString());
+    }
   }
 
   Future<void> _imprimirPrecuenta(MesaResumen mesa) async {
