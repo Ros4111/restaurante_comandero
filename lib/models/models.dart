@@ -328,6 +328,7 @@ class MesaResumen {
   final String? horaCreacion;
   final String? horaUltimaAccion;
   final int totalLineas;
+  final double totalImporte;
 
   MesaResumen({
     required this.idPedido,
@@ -341,6 +342,7 @@ class MesaResumen {
     this.horaCreacion,
     this.horaUltimaAccion,
     required this.totalLineas,
+    this.totalImporte = 0.0,
   });
 
   factory MesaResumen.fromJson(Map<String, dynamic> j) => MesaResumen(
@@ -357,6 +359,8 @@ class MesaResumen {
         horaCreacion: j['hora_creacion']?.toString(),
         horaUltimaAccion: j['hora_ultima_accion']?.toString(),
         totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
+        totalImporte:
+            double.tryParse((j['total_importe'] ?? 0).toString()) ?? 0.0,
       );
 }
 

@@ -570,6 +570,12 @@ class ApiService extends ChangeNotifier {
     });
   }
 
+  Future<void> traspasarMesa(int idPedido, int idMesaDestino) async {
+    await _request('POST', '/mesas/$idPedido/traspasar', body: {
+      'id_mesa_destino': idMesaDestino,
+    });
+  }
+
   // ── Pedidos ────────────────────────────────────────────────
   Future<Map<String, dynamic>> getPedido(int idPedido) async {
     return await _request('GET', '/pedidos/$idPedido');
