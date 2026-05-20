@@ -37,12 +37,14 @@ class LineasPanel extends StatefulWidget {
   final List<LineaPedido> lineas;
   final bool soloLectura;
   final void Function(LineaPedido) onLineaTap;
+  final VoidCallback? onNotaLibre;
 
   const LineasPanel({
     super.key,
     required this.lineas,
     required this.soloLectura,
     required this.onLineaTap,
+    this.onNotaLibre,
   });
 
   @override
@@ -114,17 +116,31 @@ class _LineasPanelState extends State<LineasPanel> {
       );
     }
 
-//no se muestra el título "Pedido" si no hay líneas, para no ocupar espacio innecesario
     return Column(
       children: [
         Container(
           color: AppTheme.colorSuperficie,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          alignment: Alignment.centerLeft,
-          child: const Text(
-            'Pedido',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            overflow: TextOverflow.ellipsis,
+          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+          child: Row(
+            children: [
+              const Text(
+                'Pedido',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Spacer(),
+              if (widget.onNotaLibre != null && !widget.soloLectura)
+                Tooltip(
+                  message: 'Nota / Artículo libre',
+                  child: IconButton(
+                    icon: const Icon(Icons.add_comment_outlined, size: 20),
+                    onPressed: widget.onNotaLibre,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 36, minHeight: 36),
+                  ),
+                ),
+            ],
           ),
         ),
         Expanded(child: body),
@@ -152,9 +168,11 @@ class _LineaTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final opcionesPanel = _opcionesAMostrarEnPanel(linea, catalogo);
     final esNuevo = linea.esNuevo;
+    final esNota = linea.esNotaLibre;
     final color = linea.editada
         ? Colors.green
         : (esNuevo ? AppTheme.colorLineasNuevas : AppTheme.colorLineasViejas);
+    final notaColor = esNota ? Colors.amber[300]! : color;
 
     return GestureDetector(
       onLongPress: soloLectura ? null : onLongPress,
@@ -170,15 +188,23 @@ class _LineaTile extends StatelessWidget {
           children: [
             Row(
               children: [
+                if (esNota) ...[
+                  Icon(Icons.edit_note,
+                      size: 15, color: Colors.amber[300]),
+                  const SizedBox(width: 4),
+                ],
                 Expanded(
                   child: Text(
                     linea.nombreProducto,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        color: color,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600),
+                      color: notaColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      fontStyle:
+                          esNota ? FontStyle.italic : FontStyle.normal,
+                    ),
                   ),
                 ),
                 if (linea.cantidad > 1) ...[
@@ -186,9 +212,21 @@ class _LineaTile extends StatelessWidget {
                   Text(
                     '${linea.cantidad}x',
                     style: TextStyle(
-                        color: color,
+                        color: notaColor,
                         fontWeight: FontWeight.bold,
                         fontSize: 16),
+                  ),
+                ],
+                // Mostrar precio para notas libres con precio
+                if (esNota && linea.pvpAlmacenado > 0) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '${linea.pvpAlmacenado.toStringAsFixed(2)} €',
+                    style: TextStyle(
+                      color: Colors.amber[200],
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ],

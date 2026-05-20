@@ -188,6 +188,9 @@ class LineaPedido {
   bool impreso;
   int? moverAMesa; // si != null, mover esta línea a otra mesa
   bool editada;
+  /// PVP unitario (IVA incluido) almacenado en BD. Solo fiable para notas libres;
+  /// para productos regulares se recalcula desde el catálogo.
+  final double pvpAlmacenado;
 
   LineaPedido({
     this.idLinea,
@@ -201,9 +204,12 @@ class LineaPedido {
     this.impreso = false,
     this.moverAMesa,
     this.editada = false,
+    this.pvpAlmacenado = 0.0,
   });
 
   bool get esNuevo => idLinea == null;
+  /// Línea de texto libre añadida sin producto del catálogo.
+  bool get esNotaLibre => idProducto == 0;
   List<String> get opcionesNoPredeterminadas => opcionesElegidas.values
       .where((o) => !o.predeterminado)
       .map((o) => o.nombre)
@@ -227,6 +233,14 @@ class LineaPedido {
         }
       });
     }
+    final precioSinIva =
+        double.tryParse((j['precio_sin_IVA'] ?? 0).toString()) ?? 0.0;
+    final pctIva =
+        double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0;
+    final pvp = precioSinIva > 0
+        ? double.parse(
+            (precioSinIva * (1.0 + pctIva / 100.0)).toStringAsFixed(2))
+        : 0.0;
     return LineaPedido(
       idLinea:
           j['id_linea'] != null ? int.parse(j['id_linea'].toString()) : null,
@@ -239,6 +253,7 @@ class LineaPedido {
       orden: int.parse((j['orden'] ?? 0).toString()),
       impreso: j['impreso'].toString() == '1',
       editada: false,
+      pvpAlmacenado: pvp,
     );
   }
 
@@ -292,6 +307,7 @@ class LineaPedido {
         impreso: impreso,
         moverAMesa: moverAMesa ?? this.moverAMesa,
         editada: editada ?? this.editada,
+        pvpAlmacenado: pvpAlmacenado,
       );
 }
 
@@ -328,6 +344,7 @@ class MesaResumen {
   final String? horaCreacion;
   final String? horaUltimaAccion;
   final int totalLineas;
+  final double totalImporte;
 
   MesaResumen({
     required this.idPedido,
@@ -341,6 +358,7 @@ class MesaResumen {
     this.horaCreacion,
     this.horaUltimaAccion,
     required this.totalLineas,
+    this.totalImporte = 0.0,
   });
 
   factory MesaResumen.fromJson(Map<String, dynamic> j) => MesaResumen(
@@ -357,7 +375,90 @@ class MesaResumen {
         horaCreacion: j['hora_creacion']?.toString(),
         horaUltimaAccion: j['hora_ultima_accion']?.toString(),
         totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
+        totalImporte:
+            double.tryParse((j['total_importe'] ?? 0).toString()) ?? 0.0,
       );
+}
+
+// ── Historial de mesas cerradas ──────────────────────────────
+
+class MesaHistorico {
+  final int idPedido;
+  final int idMesa;
+  final String nombreCliente;
+  final String? horaCreacion;
+  final String? horaUltimaAccion;
+  final double totalImporte;
+  final int totalLineas;
+
+  const MesaHistorico({
+    required this.idPedido,
+    required this.idMesa,
+    required this.nombreCliente,
+    this.horaCreacion,
+    this.horaUltimaAccion,
+    this.totalImporte = 0.0,
+    this.totalLineas = 0,
+  });
+
+  factory MesaHistorico.fromJson(Map<String, dynamic> j) => MesaHistorico(
+        idPedido: int.parse(j['id_pedido'].toString()),
+        idMesa: int.parse(j['id_mesa'].toString()),
+        nombreCliente: j['nombre_cliente']?.toString() ?? '',
+        horaCreacion: j['hora_creacion']?.toString(),
+        horaUltimaAccion: j['hora_ultima_accion']?.toString(),
+        totalImporte:
+            double.tryParse((j['total_importe'] ?? 0).toString()) ?? 0.0,
+        totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
+      );
+}
+
+class LineaHistorico {
+  final int idLinea;
+  final int idProducto;
+  final int cantidad;
+  final String comentario;
+  final String nombreProducto;
+  final Map<int, OpcionElegida> opcionesElegidas;
+  final double pvpUnitario;
+
+  const LineaHistorico({
+    required this.idLinea,
+    required this.idProducto,
+    required this.cantidad,
+    required this.comentario,
+    required this.nombreProducto,
+    this.opcionesElegidas = const {},
+    this.pvpUnitario = 0.0,
+  });
+
+  factory LineaHistorico.fromJson(Map<String, dynamic> j) {
+    final opRaw = j['opciones_elegidas'];
+    final opciones = <int, OpcionElegida>{};
+    if (opRaw is Map) {
+      opRaw.forEach((k, v) {
+        final idGrupo = int.tryParse(k.toString());
+        if (idGrupo == null) return;
+        if (v is Map) {
+          opciones[idGrupo] =
+              OpcionElegida.fromJson(Map<String, dynamic>.from(v));
+        } else if (v != null) {
+          opciones[idGrupo] =
+              OpcionElegida(nombre: v.toString(), predeterminado: false);
+        }
+      });
+    }
+    return LineaHistorico(
+      idLinea: int.parse(j['id_linea'].toString()),
+      idProducto: int.parse((j['id_producto'] ?? 0).toString()),
+      cantidad: int.parse((j['cantidad'] ?? 1).toString()),
+      comentario: j['comentario']?.toString() ?? '',
+      nombreProducto: j['nombre_producto_pantalla']?.toString() ?? '',
+      opcionesElegidas: opciones,
+      pvpUnitario:
+          double.tryParse((j['pvp_unitario'] ?? 0).toString()) ?? 0.0,
+    );
+  }
 }
 
 /// Línea pendiente de servir en mesa (servido = 2000-01-01).

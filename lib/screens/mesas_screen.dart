@@ -1,11 +1,14 @@
 // lib/screens/mesas_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/catalogo_provider.dart';
+import '../services/sunmi_service.dart';
 import '../utils/theme.dart';
 import 'hacer_pedido_screen.dart';
 import 'login_screen.dart';
@@ -208,6 +211,214 @@ class _MesasScreenState extends State<MesasScreen> {
         SnackBar(content: Text(msg), backgroundColor: Colors.red[700]));
   }
 
+  // ── Menú largo pulsado sobre una mesa ──────────────────────
+
+  Future<void> _mostrarOpcionesMesa(MesaResumen mesa) async {
+    if (_cargandoMesa) return;
+    final sesion = context.read<SesionProvider>();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.colorTarjeta,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final tieneImporte = mesa.totalImporte > 0;
+        final importeText = tieneImporte
+            ? '${mesa.totalImporte.toStringAsFixed(2)} €'
+            : '--';
+        final cliente = (mesa.nombreCliente ?? '').trim();
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle visual
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Título de la mesa
+                Text(
+                  'Mesa ${mesa.idMesa}${cliente.isNotEmpty ? ' · $cliente' : ''}',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
+                // Chip de importe
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.colorPrimario.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: AppTheme.colorPrimario.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.euro,
+                          size: 16, color: AppTheme.colorPrimario),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Importe: $importeText',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.colorPrimario,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                // Opción: Imprimir pre-cuenta
+                ListTile(
+                  leading: const Icon(Icons.receipt_long, color: Colors.white),
+                  title: const Text('Imprimir pre-cuenta'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _imprimirPrecuenta(mesa);
+                  },
+                ),
+                // Opción: Mover mesa (solo supervisor/admin)
+                if (sesion.esSupervisor)
+                  ListTile(
+                    leading:
+                        const Icon(Icons.swap_horiz, color: Colors.orange),
+                    title: const Text('Mover mesa completa'),
+                    subtitle: const Text(
+                        'Traspasar todos los productos a otra mesa'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _traspasarMesa(mesa);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _imprimirPrecuenta(MesaResumen mesa) async {
+    final api = context.read<ApiService>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        backgroundColor: Color(0xFF1E1E2C),
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Cargando pedido…'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final data = await api.getPedido(mesa.idPedido);
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      final detalles = data['detalles'] as List? ?? [];
+      final lineas = detalles
+          .map((j) => LineaPedido.fromJson(j as Map<String, dynamic>))
+          .toList();
+
+      final ahora = DateFormat('HH:mm  dd/MM/yyyy').format(DateTime.now());
+      final cliente = (mesa.nombreCliente ?? '').trim();
+      final importeStr = mesa.totalImporte > 0
+          ? mesa.totalImporte.toStringAsFixed(2)
+          : '0.00';
+
+      final lineasTicket = <String>[
+        '================================',
+        '         PRE-CUENTA',
+        '         Mesa ${mesa.idMesa}',
+        '         $ahora',
+        if (cliente.isNotEmpty) '         $cliente',
+        '================================',
+        for (final l in lineas) '  ${l.cantidad} x ${l.nombreProducto}',
+        '--------------------------------',
+        '  TOTAL: $importeStr Eur',
+        '================================',
+        '',
+        '    Gracias por su visita',
+        '',
+      ];
+
+      String error = '';
+      final prefs = await SharedPreferences.getInstance();
+      final mac = prefs.getString('bt_printer_mac') ?? '';
+      if (mac.isNotEmpty) {
+        error = await SunmiService.imprimirTextoTicket(
+          lineas: lineasTicket,
+          destino: 'bt',
+        );
+      } else if (await SunmiService.dispositivoTieneImpresoraSunmiIntegrada()) {
+        error = await SunmiService.imprimirTextoTicket(
+          lineas: lineasTicket,
+          destino: 'sunmi',
+        );
+      } else {
+        error = 'No hay impresora configurada (configura BT en Ajustes)';
+      }
+
+      if (!mounted) return;
+      if (error.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Pre-cuenta impresa'),
+            backgroundColor: Colors.green));
+      } else {
+        _showError(error);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      _showError(e.toString());
+    }
+  }
+
+  Future<void> _traspasarMesa(MesaResumen mesa) async {
+    final numStr = await showDialog<String>(
+      context: context,
+      builder: (_) => _AbrirMesaDialog(titulo: 'Mover mesa a número'),
+    );
+    if (numStr == null || numStr.isEmpty) return;
+    final numMesa = int.tryParse(numStr);
+    if (numMesa == null || numMesa <= 0) return;
+    if (numMesa == mesa.idMesa) {
+      _showError('La mesa destino es la misma que la de origen');
+      return;
+    }
+
+    final api = context.read<ApiService>();
+    try {
+      await api.traspasarMesa(mesa.idPedido, numMesa);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Mesa ${mesa.idMesa} traspasada a mesa $numMesa'),
+          backgroundColor: Colors.green));
+      _cargar();
+    } catch (e) {
+      _showError(e.toString());
+    }
+  }
+
   void _logout() {
     context.read<SesionProvider>().logout();
     context.read<ApiService>().clearToken();
@@ -317,6 +528,9 @@ class _MesasScreenState extends State<MesasScreen> {
                               mesa: m,
                               terminalSerieActual: _terminalSerie,
                               onTap: _cargandoMesa ? null : () => _entrarMesa(m),
+                              onLongPress: _cargandoMesa
+                                  ? null
+                                  : () => _mostrarOpcionesMesa(m),
                             ),
                           );
                         }).toList(),
@@ -332,11 +546,14 @@ class _MesaTile extends StatelessWidget {
   final MesaResumen mesa;
   final String? terminalSerieActual;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
-  const _MesaTile(
-      {required this.mesa,
-      required this.terminalSerieActual,
-      required this.onTap});
+  const _MesaTile({
+    required this.mesa,
+    required this.terminalSerieActual,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   /// `yyyy-MM-dd` + espacio(s)/tab/`T` + hora (MySQL / API). Evita fallos con
   /// varios espacios entre fecha y hora (`tryParse` no lo admite).
@@ -447,6 +664,7 @@ class _MesaTile extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(
           color: AppTheme.colorTarjeta,
@@ -495,7 +713,8 @@ class _MesaTile extends StatelessWidget {
 }
 
 class _AbrirMesaDialog extends StatefulWidget {
-  const _AbrirMesaDialog();
+  final String titulo;
+  const _AbrirMesaDialog({this.titulo = 'Número de mesa'});
 
   @override
   State<_AbrirMesaDialog> createState() => _AbrirMesaDialogState();
@@ -523,7 +742,7 @@ class _AbrirMesaDialogState extends State<_AbrirMesaDialog> {
       backgroundColor: AppTheme.colorTarjeta,
       contentPadding: const EdgeInsets.all(6),
       insetPadding: EdgeInsets.symmetric(horizontal: horizontalInset, vertical: 24),
-      title: const Text('Número de mesa'),
+      title: Text(widget.titulo),
       content: SizedBox(
         width: dialogWidth,
         child: Column(

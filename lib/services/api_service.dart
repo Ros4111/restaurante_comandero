@@ -570,6 +570,12 @@ class ApiService extends ChangeNotifier {
     });
   }
 
+  Future<void> traspasarMesa(int idPedido, int idMesaDestino) async {
+    await _request('POST', '/mesas/$idPedido/traspasar', body: {
+      'id_mesa_destino': idMesaDestino,
+    });
+  }
+
   // ── Pedidos ────────────────────────────────────────────────
   Future<Map<String, dynamic>> getPedido(int idPedido) async {
     return await _request('GET', '/pedidos/$idPedido');
@@ -585,6 +591,60 @@ class ApiService extends ChangeNotifier {
       'terminal_serie': await terminalSerie(),
       'nombre_cliente': nombreCliente.trim(),
     });
+  }
+
+  Future<int> crearNotaLibre({
+    required int idPedido,
+    required String texto,
+    required double pvpConIva,
+    required int idImpresora,
+  }) async {
+    final data = await _request('POST', '/pedidos/$idPedido/nota-libre', body: {
+      'texto': texto.trim(),
+      'pvp_con_iva': pvpConIva,
+      'id_impresora': idImpresora,
+      'terminal_serie': await terminalSerie(),
+    });
+    return int.parse(data['id_linea'].toString());
+  }
+
+  Future<void> editarNotaLibre({
+    required int idPedido,
+    required int idLinea,
+    required String texto,
+    required double pvpConIva,
+  }) async {
+    await _request(
+        'POST', '/pedidos/$idPedido/nota-libre/$idLinea/editar',
+        body: {
+          'texto': texto.trim(),
+          'pvp_con_iva': pvpConIva,
+          'terminal_serie': await terminalSerie(),
+        });
+  }
+
+  // ── Historial de mesas ─────────────────────────────────────
+  Future<List<MesaHistorico>> getHistoricoMesas({int dias = 0}) async {
+    final path = dias > 0
+        ? '/historico/mesas?dias=$dias'
+        : '/historico/mesas';
+    final list = await _requestList(path);
+    return list
+        .map((j) => MesaHistorico.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> getHistoricoMesaDetalle(int idPedido) async {
+    return await _request('GET', '/historico/mesas/$idPedido');
+  }
+
+  Future<({int idPedido, int idMesa})> reabrirMesa(int idPedido) async {
+    final data = await _request('POST', '/historico/mesas/$idPedido/reabrir',
+        body: {'terminal_serie': await terminalSerie()});
+    return (
+      idPedido: int.parse(data['id_pedido'].toString()),
+      idMesa: int.parse(data['id_mesa'].toString()),
+    );
   }
 
   /// Envía al servidor los nuevos órdenes de productos y/o categorías.

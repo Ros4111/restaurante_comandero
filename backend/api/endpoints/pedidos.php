@@ -502,3 +502,159 @@ function _mesaCambioEscPos(int $mesaO, int $mesaD, string $prod, int $cant, stri
     $t .= _escposCut();
     return $t;
 }
+
+function _notaLibreEscPos(int $mesa, string $texto, float $pvp, string $camarero): string {
+    $t  = _escposInit();
+    $t .= _escposCenter();
+    $t .= _escposBold(true) . "*** PEDIDO MESA $mesa ***\n" . _escposBold(false);
+    $t .= date('d/m/Y H:i:s') . "\n";
+    $t .= "Camarero: $camarero\n";
+    $t .= str_repeat('-', 32) . "\n";
+    $t .= _escposLeft();
+    $t .= _escposBold(true) . " $texto\n" . _escposBold(false);
+    if ($pvp > 0) {
+        $t .= sprintf("   PVP: %.2f Eur\n", $pvp);
+    }
+    $t .= str_repeat('-', 32) . "\n";
+    $t .= _escposCut();
+    return $t;
+}
+
+// ── Crear nota / artículo libre ───────────────────────────────
+// id_producto = 0: no existe en catálogo, nombre y precio libres.
+// No hay FK de pedido_detalles.id_producto → productos, es seguro.
+function endpointNotaLibre(array $payload, int $idPedido): void {
+    $body          = getBody();
+    $texto         = trim((string)($body['texto'] ?? ''));
+    if ($texto === '') jsonError('El texto no puede estar vacío', 400);
+    if (mb_strlen($texto) > 200) $texto = mb_substr($texto, 0, 200);
+
+    $pvpConIva   = max(0.0, (float)($body['pvp_con_iva']  ?? 0));
+    $idImpresora = (int)($body['id_impresora'] ?? 0);
+    $terminalSerie = _terminalSerieDesdeBody($body);
+
+    // PVP indicado IVA 10 % incluido → desglosar
+    $pct         = 10.0;
+    $factor      = 1.0 + $pct / 100.0;
+    $precioSinIva = $pvpConIva > 0 ? round($pvpConIva / $factor, 6) : 0.0;
+    $importeIva   = round($precioSinIva * $pct / 100, 4);
+
+    $db = getDB();
+    $db->beginTransaction();
+    try {
+        $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
+        $st->execute([$idPedido]);
+        $cab = $st->fetch();
+        if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
+        _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
+
+        $stMax = $db->prepare('SELECT COALESCE(MAX(orden), 0) AS m FROM pedido_detalles WHERE id_pedido = ?');
+        $stMax->execute([$idPedido]);
+        $orden = (int)($stMax->fetch()['m'] ?? 0) + 1;
+
+        $db->prepare(
+            'INSERT INTO pedido_detalles
+             (id_pedido, id_producto, cantidad, comentario,
+              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden,
+              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido)
+             VALUES (?, 0, 1, \'\', ?, NULL, ?, ?, ?, ?, ?, 0, NOW())'
+        )->execute([
+            $idPedido, $texto, $texto, $orden,
+            $precioSinIva, $pct, $importeIva,
+        ]);
+        $newId = (int)$db->lastInsertId();
+
+        _registrarCambio($db, $payload['sub'], 'nota_libre', [
+            'id_pedido' => $idPedido,
+            'id_linea'  => $newId,
+            'texto'     => $texto,
+            'pvp'       => $pvpConIva,
+        ]);
+
+        if ($idImpresora > 0) {
+            $escpos = _notaLibreEscPos($cab['id_mesa'], $texto, $pvpConIva, $payload['name']);
+            $db->prepare(
+                'INSERT INTO cola_impresion (id_impresora, id_pedido, contenido_escpos) VALUES (?,?,?)'
+            )->execute([$idImpresora, $idPedido, $escpos]);
+            $db->prepare('UPDATE pedido_detalles SET impreso=1 WHERE id_linea=?')->execute([$newId]);
+        }
+
+        // Recalcular totales de la cabecera
+        $tot = _totalesPedidoDesdeDetalles($db, $idPedido);
+        $db->prepare(
+            'UPDATE pedido_cabecera
+                SET hora_ultima_accion=NOW(), base_imponible=?, importe_IVA=?
+              WHERE id_pedido=?'
+        )->execute([$tot['base_imponible'], $tot['importe_IVA'], $idPedido]);
+
+        $db->commit();
+        jsonOk(['id_linea' => $newId]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        logEvent('Error nota_libre ' . $idPedido . ': ' . $e->getMessage(), 'error');
+        jsonError('Error interno: ' . $e->getMessage(), 500);
+    }
+}
+
+// ── Editar nota / artículo libre ─────────────────────────────
+function endpointNotaLibreEditar(array $payload, int $idPedido, int $idLinea): void {
+    $body  = getBody();
+    $texto = trim((string)($body['texto'] ?? ''));
+    if ($texto === '') jsonError('El texto no puede estar vacío', 400);
+    if (mb_strlen($texto) > 200) $texto = mb_substr($texto, 0, 200);
+
+    $pvpConIva     = max(0.0, (float)($body['pvp_con_iva'] ?? 0));
+    $terminalSerie = _terminalSerieDesdeBody($body);
+
+    $pct          = 10.0;
+    $factor       = 1.0 + $pct / 100.0;
+    $precioSinIva = $pvpConIva > 0 ? round($pvpConIva / $factor, 6) : 0.0;
+    $importeIva   = round($precioSinIva * $pct / 100, 4);
+
+    $db = getDB();
+    $db->beginTransaction();
+    try {
+        $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
+        $st->execute([$idPedido]);
+        $cab = $st->fetch();
+        if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
+        _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
+
+        // Verificar que la línea pertenece al pedido y es nota libre
+        $stLinea = $db->prepare(
+            'SELECT id_linea FROM pedido_detalles WHERE id_linea=? AND id_pedido=? AND id_producto=0'
+        );
+        $stLinea->execute([$idLinea, $idPedido]);
+        if (!$stLinea->fetch()) {
+            $db->rollBack();
+            jsonError('Línea no encontrada o no es nota libre', 404);
+        }
+
+        $db->prepare(
+            'UPDATE pedido_detalles
+                SET nombre_producto_pantalla=?, texto_imprimir_cocina=?,
+                    precio_sin_IVA=?, porcentaje_IVA=?, importe_IVA=?
+              WHERE id_linea=?'
+        )->execute([$texto, $texto, $precioSinIva, $pct, $importeIva, $idLinea]);
+
+        _registrarCambio($db, $payload['sub'], 'nota_libre_editar', [
+            'id_linea' => $idLinea,
+            'texto'    => $texto,
+            'pvp'      => $pvpConIva,
+        ]);
+
+        $tot = _totalesPedidoDesdeDetalles($db, $idPedido);
+        $db->prepare(
+            'UPDATE pedido_cabecera
+                SET hora_ultima_accion=NOW(), base_imponible=?, importe_IVA=?
+              WHERE id_pedido=?'
+        )->execute([$tot['base_imponible'], $tot['importe_IVA'], $idPedido]);
+
+        $db->commit();
+        jsonOk(['actualizado' => true]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        logEvent('Error nota_libre_editar ' . $idLinea . ': ' . $e->getMessage(), 'error');
+        jsonError('Error interno: ' . $e->getMessage(), 500);
+    }
+}

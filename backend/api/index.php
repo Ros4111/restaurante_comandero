@@ -141,6 +141,10 @@ if (preg_match('#^/mesas/(\d+)/expulsar$#', $uri, $m) && $method === 'POST') {
     require __DIR__ . '/endpoints/mesas.php';
     endpointMesaExpulsar($payload, (int)$m[1]);
 }
+if (preg_match('#^/mesas/(\d+)/traspasar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/mesas.php';
+    endpointMesaTraspasar($payload, (int)$m[1]);
+}
 
 // Dispositivos
 if ($uri === '/dispositivos/ping' && $method === 'POST') {
@@ -156,6 +160,28 @@ if (preg_match('#^/pedidos/(\d+)$#', $uri, $m) && $method === 'GET') {
 if (preg_match('#^/pedidos/(\d+)/guardar$#', $uri, $m) && $method === 'POST') {
     require __DIR__ . '/endpoints/pedidos.php';
     endpointPedidoGuardar($payload, (int)$m[1]);
+}
+if (preg_match('#^/pedidos/(\d+)/nota-libre$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/pedidos.php';
+    endpointNotaLibre($payload, (int)$m[1]);
+}
+if (preg_match('#^/pedidos/(\d+)/nota-libre/(\d+)/editar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/pedidos.php';
+    endpointNotaLibreEditar($payload, (int)$m[1], (int)$m[2]);
+}
+
+// Historial de mesas (solo admin)
+if ($uri === '/historico/mesas' && $method === 'GET') {
+    require __DIR__ . '/endpoints/historico.php';
+    endpointHistoricoMesasListar($payload);
+}
+if (preg_match('#^/historico/mesas/(\d+)$#', $uri, $m) && $method === 'GET') {
+    require __DIR__ . '/endpoints/historico.php';
+    endpointHistoricoMesaDetalle($payload, (int)$m[1]);
+}
+if (preg_match('#^/historico/mesas/(\d+)/reabrir$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/historico.php';
+    endpointHistoricoMesaReabrir($payload, (int)$m[1]);
 }
 
 // Servicio en mesa (líneas pendientes de servir)

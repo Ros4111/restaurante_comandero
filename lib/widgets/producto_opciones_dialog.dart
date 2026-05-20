@@ -312,6 +312,37 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                         ),
                       ),
                     ),
+                    if (widget.modoEdicion)
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange[800],
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        onPressed: () async {
+                          final mesaStr = await showDialog<String>(
+                            context: context,
+                            builder: (_) => const _SeleccionarMesaDialog(),
+                          );
+                          if (mesaStr == null || mesaStr.isEmpty) return;
+                          final numMesa = int.tryParse(mesaStr);
+                          if (numMesa == null || numMesa <= 0) return;
+                          if (!context.mounted) return;
+                          Navigator.pop(context, {
+                            'accion': 'mover',
+                            'mesa_destino': numMesa,
+                          });
+                        },
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.swap_horiz, size: 22),
+                            SizedBox(width: 4),
+                            Text('Mover'),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -319,6 +350,221 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Diálogo selector de número de mesa ─────────────────────────
+
+class _SeleccionarMesaDialog extends StatefulWidget {
+  const _SeleccionarMesaDialog();
+
+  @override
+  State<_SeleccionarMesaDialog> createState() => _SeleccionarMesaDialogState();
+}
+
+class _SeleccionarMesaDialogState extends State<_SeleccionarMesaDialog> {
+  String _numero = '';
+
+  void _tecla(String v) {
+    if (_numero.length >= 4) return;
+    setState(() => _numero += v);
+  }
+
+  void _borrar() {
+    if (_numero.isEmpty) return;
+    setState(() => _numero = _numero.substring(0, _numero.length - 1));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final dialogWidth = (screenWidth - 20).clamp(0.0, 400.0);
+    final horizontalInset =
+        ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
+    return AlertDialog(
+      backgroundColor: AppTheme.colorTarjeta,
+      contentPadding: const EdgeInsets.all(6),
+      insetPadding:
+          EdgeInsets.symmetric(horizontal: horizontalInset, vertical: 24),
+      title: const Text('Mover a mesa número'),
+      content: SizedBox(
+        width: dialogWidth,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.colorSuperficie,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                _numero.isEmpty ? 'Número de mesa destino' : _numero,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 26,
+                  letterSpacing: _numero.isEmpty ? 0 : 3,
+                  color: _numero.isEmpty
+                      ? AppTheme.colorTextoGris
+                      : Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 240,
+              child: _TecladoNumMesa(
+                onTecla: _tecla,
+                onBorrar: _borrar,
+                onOk: _numero.isNotEmpty
+                    ? () => Navigator.pop(context, _numero)
+                    : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TecladoNumMesa extends StatelessWidget {
+  final void Function(String) onTecla;
+  final VoidCallback onBorrar;
+  final VoidCallback? onOk;
+
+  const _TecladoNumMesa({
+    required this.onTecla,
+    required this.onBorrar,
+    required this.onOk,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _fila(['1', '2', '3']),
+        _fila(['4', '5', '6']),
+        _fila(['7', '8', '9']),
+        _filaEspecial(),
+      ],
+    );
+  }
+
+  Widget _fila(List<String> nums) {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: nums
+            .map((n) => Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: _BtnNum(label: n, onTap: () => onTecla(n)),
+                  ),
+                ))
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _filaEspecial() {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: _BtnAccion(
+                color: const Color(0xFF333333),
+                onTap: onBorrar,
+                child: const Icon(Icons.backspace_outlined,
+                    color: Colors.white70, size: 24),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: _BtnNum(label: '0', onTap: () => onTecla('0')),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: _BtnAccion(
+                color: onOk != null
+                    ? AppTheme.colorPrimario
+                    : AppTheme.colorPrimario.withValues(alpha: 0.35),
+                onTap: onOk,
+                child: const Text(
+                  'OK',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BtnNum extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _BtnNum({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF2A2A2A),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Center(
+          child: Text(label,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold)),
+        ),
+      ),
+    );
+  }
+}
+
+class _BtnAccion extends StatelessWidget {
+  final Widget child;
+  final Color color;
+  final VoidCallback? onTap;
+  const _BtnAccion({required this.child, required this.color, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Center(child: child),
       ),
     );
   }
