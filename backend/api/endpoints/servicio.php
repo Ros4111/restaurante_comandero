@@ -112,6 +112,68 @@ function _opcionesNoPredeterminadas(PDO $db, int $idProducto, array $opciones): 
     return $out;
 }
 
+/** JSON estable de opciones para comparar líneas equivalentes. */
+function _opcionesCanonical(array $opciones): array {
+    if ($opciones === []) {
+        return [];
+    }
+    ksort($opciones);
+    $out = [];
+    foreach ($opciones as $g => $op) {
+        if (!is_array($op)) {
+            continue;
+        }
+        $out[(string)(int)$g] = [
+            'nombre'          => trim((string)($op['nombre'] ?? '')),
+            'predeterminado'  => (int)($op['predeterminado'] ?? 0),
+        ];
+    }
+    return $out;
+}
+
+function _claveAgrupacionLinea(int $idProducto, string $comentario, array $opciones): string {
+    return $idProducto . "\0" . trim($comentario) . "\0"
+        . json_encode(_opcionesCanonical($opciones), JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * Agrupa líneas del mismo lote con mismo producto, opciones y comentario.
+ * @param list<array<string, mixed>> $lineas
+ * @return list<array<string, mixed>>
+ */
+function _agruparLineasPendientes(array $lineas): array {
+    $grupos = [];
+    foreach ($lineas as $linea) {
+        $opciones = $linea['opciones_elegidas'];
+        if (!is_array($opciones)) {
+            $opciones = [];
+        }
+        $key = _claveAgrupacionLinea(
+            (int)$linea['id_producto'],
+            (string)$linea['comentario'],
+            $opciones
+        );
+        $idLinea = (int)$linea['id_linea'];
+        $cant = (int)$linea['cantidad'];
+        if (!isset($grupos[$key])) {
+            $grupos[$key] = [
+                'id_linea'                 => $idLinea,
+                'ids_linea'                => [$idLinea],
+                'id_producto'              => (int)$linea['id_producto'],
+                'cantidad'                 => $cant,
+                'comentario'               => (string)$linea['comentario'],
+                'nombre_producto_pantalla' => (string)$linea['nombre_producto_pantalla'],
+                'opciones_elegidas'        => $opciones,
+                'opciones_no_pred'         => $linea['opciones_no_pred'],
+            ];
+        } else {
+            $grupos[$key]['ids_linea'][] = $idLinea;
+            $grupos[$key]['cantidad'] += $cant;
+        }
+    }
+    return array_values($grupos);
+}
+
 function endpointServicioPendientes(array $payload): void {
     requireServicioAccess($payload);
 
@@ -174,6 +236,11 @@ function endpointServicioPendientes(array $payload): void {
             'opciones_no_pred'         => _opcionesNoPredeterminadas($db, $idProducto, $opciones),
         ];
     }
+
+    foreach ($pedidos as &$pedido) {
+        $pedido['lineas'] = _agruparLineasPendientes($pedido['lineas']);
+    }
+    unset($pedido);
 
     jsonOk(array_values($pedidos));
 }

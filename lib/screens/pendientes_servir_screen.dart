@@ -43,14 +43,14 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
   /// Clave de selección única por tarjeta (evita colisión si varios lotes comparten idGrupo).
   String _claveSeleccion(PedidoPendienteServir p) {
     if (p.lineas.isEmpty) return p.idGrupo;
-    final ids = p.lineas.map((l) => l.idLinea).toList()..sort();
+    final ids = p.lineas.expand((l) => l.idsLinea).toList()..sort();
     return '${p.idGrupo}#${ids.join('-')}';
   }
 
   Set<int> _lineasSeleccionadas(PedidoPendienteServir p) {
     final sel = _seleccion[_claveSeleccion(p)];
     if (sel == null || sel.isEmpty) return {};
-    final idsTarjeta = p.lineas.map((l) => l.idLinea).toSet();
+    final idsTarjeta = p.lineas.expand((l) => l.idsLinea).toSet();
     return sel.where(idsTarjeta.contains).toSet();
   }
 
@@ -88,7 +88,10 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
       if (!mounted) return;
 
       final lineasActuales = {
-        for (final p in lista) for (final l in p.lineas) l.idLinea,
+        for (final p in lista)
+          for (final l in p.lineas)
+            for (final id in l.idsLinea)
+              id,
       };
       final gruposActuales = lista.map((p) => p.idGrupo).toSet();
       final lineasNuevas = lineasActuales.difference(_lineasConocidas);
@@ -105,7 +108,8 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
           (clave, _) => !lista.any((p) => _claveSeleccion(p) == clave),
         );
         for (final p in lista) {
-          final vigentes = p.lineas.map((l) => l.idLinea).toSet();
+          final vigentes =
+              p.lineas.expand((l) => l.idsLinea).toSet();
           _seleccion
               .putIfAbsent(_claveSeleccion(p), () => {})
               .removeWhere((id) => !vigentes.contains(id));
@@ -154,13 +158,13 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     }
   }
 
-  void _toggleLinea(String clave, int idLinea, bool? v) {
+  void _toggleLinea(String clave, LineaPendienteServir l, bool? v) {
     setState(() {
       final set = _seleccion.putIfAbsent(clave, () => {});
       if (v == true) {
-        set.add(idLinea);
+        set.addAll(l.idsLinea);
       } else {
-        set.remove(idLinea);
+        set.removeAll(l.idsLinea);
       }
     });
   }
@@ -170,7 +174,7 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     setState(() {
       _seleccion
           .putIfAbsent(clave, () => {})
-          .addAll(pedido.lineas.map((l) => l.idLinea));
+          .addAll(pedido.lineas.expand((l) => l.idsLinea));
     });
   }
 
@@ -465,7 +469,8 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
   }
 
   Widget _filaLinea(String clave, LineaPendienteServir l, Set<int> sel) {
-    final checked = sel.contains(l.idLinea);
+    final checked =
+        l.idsLinea.isNotEmpty && l.idsLinea.every((id) => sel.contains(id));
     final titulo = l.cantidad > 1 ? '${l.nombre}  ×${l.cantidad}' : l.nombre;
     final catalogo = context.read<CatalogoProvider>();
     final opciones = catalogo.loaded
@@ -484,7 +489,7 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
           Checkbox(
             value: checked,
             onChanged:
-                _marcando ? null : (v) => _toggleLinea(clave, l.idLinea, v),
+                _marcando ? null : (v) => _toggleLinea(clave, l, v),
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: VisualDensity.compact,
           ),

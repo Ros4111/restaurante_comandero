@@ -52,9 +52,10 @@ class SunmiService {
   static String _claveImpresionAgrupada(LineaPedido l) {
     final buf = StringBuffer()
       ..write('${l.idProducto}|')
-      ..write('${l.comentario.trim()}|')
-      ..write('${l.textoImprimirBarraCocina}|')
-      ..write('${l.moverAMesa ?? '_'}|');
+      ..write('${l.comentario.trim()}|');
+    if (l.moverAMesa != null) {
+      buf.write('|mesa:${l.moverAMesa}');
+    }
     final keys = l.opcionesElegidas.keys.toList()..sort();
     for (final k in keys) {
       final o = l.opcionesElegidas[k]!;

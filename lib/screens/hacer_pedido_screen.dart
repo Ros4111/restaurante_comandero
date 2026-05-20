@@ -154,13 +154,18 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       };
 
       if (imprimir) {
-        // Imprimir confirmación en impresora ESC/POS por red
+        final nuevasImp =
+            SunmiService.agruparLineasIgualdadImpresion(lineasNuevas);
+        final elimImp =
+            SunmiService.agruparLineasIgualdadImpresion(lineasEliminadas);
+        final movImp =
+            SunmiService.agruparLineasIgualdadImpresion(lineasMovidas);
         await SunmiService.imprimirConfirmacion(
           idMesa: widget.idMesa,
           camarero: sesion.usuario?.nombre ?? '',
-          lineasNuevas: lineasNuevas,
-          lineasEliminadas: lineasEliminadas,
-          lineasMovidas: lineasMovidas,
+          lineasNuevas: nuevasImp,
+          lineasEliminadas: elimImp,
+          lineasMovidas: movImp,
           impresoraPorProducto: impresoraPorProducto,
           impresorasPorId: impresorasPorId,
         );
@@ -421,13 +426,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Future<void> _abrirNotaLibre() async {
     final catalogo = context.read<CatalogoProvider>();
+    final api = context.read<ApiService>();
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => _NotaLibreDialog(impresoras: catalogo.impresoras),
     );
-    if (result == null) return;
+    if (!mounted || result == null) return;
     if (result['accion'] == 'guardar') {
-      final api = context.read<ApiService>();
       try {
         await api.crearNotaLibre(
           idPedido: widget.idPedido,
@@ -448,6 +453,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Future<void> _editarNotaLibre(LineaPedido linea) async {
     final catalogo = context.read<CatalogoProvider>();
+    final mesaPv = context.read<MesaProvider>();
+    final api = context.read<ApiService>();
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => _NotaLibreDialog(
@@ -457,14 +464,12 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         modoEdicion: true,
       ),
     );
-    if (result == null) return;
-    final mesaPv = context.read<MesaProvider>();
+    if (!mounted || result == null) return;
     if (result['accion'] == 'eliminar') {
       mesaPv.eliminarLinea(linea);
       return;
     }
     if (result['accion'] == 'guardar') {
-      final api = context.read<ApiService>();
       try {
         await api.editarNotaLibre(
           idPedido: widget.idPedido,
@@ -988,7 +993,7 @@ class _NotaLibreDialogState extends State<_NotaLibreDialog> {
             if (!widget.modoEdicion && widget.impresoras.isNotEmpty) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
-                value: _idImpresora,
+                initialValue: _idImpresora,
                 dropdownColor: AppTheme.colorTarjeta,
                 style: const TextStyle(color: Colors.white, fontSize: 15),
                 decoration: InputDecoration(

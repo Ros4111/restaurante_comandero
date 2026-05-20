@@ -464,6 +464,8 @@ class LineaHistorico {
 /// Línea pendiente de servir en mesa (servido = 2000-01-01).
 class LineaPendienteServir {
   final int idLinea;
+  /// Todas las filas de pedido_detalles agrupadas en esta línea.
+  final List<int> idsLinea;
   final int idProducto;
   final int cantidad;
   final String comentario;
@@ -472,6 +474,7 @@ class LineaPendienteServir {
 
   const LineaPendienteServir({
     required this.idLinea,
+    required this.idsLinea,
     required this.idProducto,
     required this.cantidad,
     required this.comentario,
@@ -480,8 +483,17 @@ class LineaPendienteServir {
   });
 
   factory LineaPendienteServir.fromJson(Map<String, dynamic> j) {
+    final idsRaw = j['ids_linea'];
+    final List<int> idsLinea;
+    if (idsRaw is List && idsRaw.isNotEmpty) {
+      idsLinea = idsRaw.map((e) => int.parse(e.toString())).toList();
+    } else {
+      final id = int.parse(j['id_linea'].toString());
+      idsLinea = [id];
+    }
     return LineaPendienteServir(
-      idLinea: int.parse(j['id_linea'].toString()),
+      idLinea: idsLinea.first,
+      idsLinea: idsLinea,
       idProducto: int.parse((j['id_producto'] ?? 0).toString()),
       cantidad: int.parse((j['cantidad'] ?? 1).toString()),
       comentario: j['comentario']?.toString() ?? '',

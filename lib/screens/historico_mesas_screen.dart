@@ -147,6 +147,9 @@ class _HistoricoMesasScreenState extends State<HistoricoMesasScreen> {
       ),
     );
     if (ok != true) return;
+    if (!mounted) return;
+
+    final api = context.read<ApiService>();
 
     showDialog(
       context: context,
@@ -164,7 +167,6 @@ class _HistoricoMesasScreenState extends State<HistoricoMesasScreen> {
     );
 
     try {
-      final api = context.read<ApiService>();
       final result = await api.reabrirMesa(mesa.idPedido);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(); // cerrar loading

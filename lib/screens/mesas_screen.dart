@@ -394,19 +394,18 @@ class _MesasScreenState extends State<MesasScreen> {
   }
 
   Future<void> _traspasarMesa(MesaResumen mesa) async {
+    final api = context.read<ApiService>();
     final numStr = await showDialog<String>(
       context: context,
       builder: (_) => _AbrirMesaDialog(titulo: 'Mover mesa a número'),
     );
-    if (numStr == null || numStr.isEmpty) return;
+    if (!mounted || numStr == null || numStr.isEmpty) return;
     final numMesa = int.tryParse(numStr);
     if (numMesa == null || numMesa <= 0) return;
     if (numMesa == mesa.idMesa) {
       _showError('La mesa destino es la misma que la de origen');
       return;
     }
-
-    final api = context.read<ApiService>();
     try {
       await api.traspasarMesa(mesa.idPedido, numMesa);
       if (!mounted) return;

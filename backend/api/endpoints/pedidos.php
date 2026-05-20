@@ -152,7 +152,8 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             else           $nuevas[] = $l;
         }
 
-        $trabajosImpresion = []; // [id_impresora => [lineas_escpos]]
+        $trabajosImpresion = []; // [id_impresora => [bloques escpos]]
+        $pendientesPorImpresora = []; // [id_impresora => líneas a agrupar en un ticket]
 
         // ── Detectar borrados ────────────────────────────────
         foreach ($detBD as $lid => $bdRow) {
@@ -290,22 +291,32 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 'cantidad'   => $n['cantidad'],
             ]);
 
-            // Encolar impresión nueva
             $idImp = _idImpresora($db, $idProdNuevo);
             if ($idImp > 0) {
-                $lineaEscPos = [
-                    'cantidad' => max(1, (int)($n['cantidad'] ?? 1)),
-                    'comentario' => trim($n['comentario'] ?? ''),
-                    'opciones_elegidas' => is_array($opcionesDecoded) ? $opcionesDecoded : [],
-                    'nombre_producto_pantalla' => $txtProd['nombre_producto_pantalla'],
-                    'texto_imprimir_cocina' => $txtProd['texto_imprimir_cocina'],
+                $pendientesPorImpresora[$idImp][] = [
+                    'id_producto'             => $idProdNuevo,
+                    'cantidad'                => max(1, (int)($n['cantidad'] ?? 1)),
+                    'comentario'              => trim($n['comentario'] ?? ''),
+                    'opciones_elegidas'       => is_array($opcionesDecoded) ? $opcionesDecoded : [],
+                    'nombre_producto_pantalla'=> $txtProd['nombre_producto_pantalla'],
+                    'texto_imprimir_cocina'   => $txtProd['texto_imprimir_cocina'],
                 ];
-                $trabajosImpresion[$idImp][] = _nuevaLineaEscPos(
-                    $cab['id_mesa'], $lineaEscPos, $payload['name']
-                );
-                // Marcar como impreso
                 $db->prepare('UPDATE pedido_detalles SET impreso=1 WHERE id_linea=?')
                    ->execute([$newId]);
+            }
+        }
+
+        if ($pendientesPorImpresora !== []) {
+            foreach ($pendientesPorImpresora as $idImp => $lineasPend) {
+                $agrupadas = _agruparLineasImpresion($lineasPend);
+                if ($agrupadas === []) {
+                    continue;
+                }
+                $trabajosImpresion[$idImp][] = _ticketNuevasLineasEscPos(
+                    $cab['id_mesa'],
+                    $agrupadas,
+                    $payload['name']
+                );
             }
         }
 
@@ -443,7 +454,79 @@ function _escposBold(bool $on): string {
 function _escposCenter(): string { return "\x1B\x61\x01"; }
 function _escposLeft():   string { return "\x1B\x61\x00"; }
 
-function _nuevaLineaEscPos(int $mesa, array $linea, string $camarero): string {
+function _opcionesCanonicalImp(array $opciones): array {
+    if ($opciones === []) {
+        return [];
+    }
+    ksort($opciones);
+    $out = [];
+    foreach ($opciones as $g => $op) {
+        if (!is_array($op)) {
+            continue;
+        }
+        $out[(string)(int)$g] = [
+            'nombre'         => trim((string)($op['nombre'] ?? '')),
+            'predeterminado' => (int)($op['predeterminado'] ?? 0),
+        ];
+    }
+    return $out;
+}
+
+function _claveAgrupacionImpresion(array $linea): string {
+    $opciones = $linea['opciones_elegidas'] ?? [];
+    if (!is_array($opciones)) {
+        $opciones = [];
+    }
+    return (int)($linea['id_producto'] ?? 0) . "\0" . trim((string)($linea['comentario'] ?? ''))
+        . "\0" . json_encode(_opcionesCanonicalImp($opciones), JSON_UNESCAPED_UNICODE);
+}
+
+/** @param list<array<string, mixed>> $lineas */
+function _agruparLineasImpresion(array $lineas): array {
+    $grupos = [];
+    $orden = [];
+    foreach ($lineas as $linea) {
+        $key = _claveAgrupacionImpresion($linea);
+        $cant = (int)($linea['cantidad'] ?? 1);
+        if (!isset($grupos[$key])) {
+            $grupos[$key] = $linea;
+            $grupos[$key]['cantidad'] = $cant;
+            $orden[] = $key;
+        } else {
+            $grupos[$key]['cantidad'] += $cant;
+        }
+    }
+  return array_map(static fn(string $k) => $grupos[$k], $orden);
+}
+
+function _lineaProductoEscPosBody(array $linea): string {
+    $t = '';
+    $cant   = (int)($linea['cantidad'] ?? 1);
+    $nombre = $linea['texto_imprimir_cocina'] ?? $linea['nombre_producto_pantalla'] ?? '';
+    $t .= _escposBold(true) . " $cant x $nombre\n" . _escposBold(false);
+    if (!empty($linea['opciones_elegidas'])) {
+        foreach ((array)$linea['opciones_elegidas'] as $opcion) {
+            if (is_array($opcion)) {
+                $nomOp = (string)($opcion['nombre'] ?? '');
+            } else {
+                $nomOp = (string)$opcion;
+            }
+            if ($nomOp !== '') {
+                $t .= "   >> $nomOp\n";
+            }
+        }
+    }
+    if (!empty(trim($linea['comentario'] ?? ''))) {
+        $t .= '   Nota: ' . trim($linea['comentario']) . "\n";
+    }
+    return $t;
+}
+
+/** @param list<array<string, mixed>> $lineasAgrupadas */
+function _ticketNuevasLineasEscPos(int $mesa, array $lineasAgrupadas, string $camarero): string {
+    if ($lineasAgrupadas === []) {
+        return '';
+    }
     $t  = _escposInit();
     $t .= _escposCenter();
     $t .= _escposBold(true) . "*** PEDIDO MESA $mesa ***\n" . _escposBold(false);
@@ -451,23 +534,8 @@ function _nuevaLineaEscPos(int $mesa, array $linea, string $camarero): string {
     $t .= "Camarero: $camarero\n";
     $t .= str_repeat('-', 32) . "\n";
     $t .= _escposLeft();
-    $cant   = (int)($linea['cantidad'] ?? 1);
-    $nombre = $linea['texto_imprimir_cocina'] ?? $linea['nombre_producto_pantalla'];
-    $t .= _escposBold(true) . " $cant x $nombre\n" . _escposBold(false);
-    if (!empty($linea['opciones_elegidas'])) {
-        foreach ((array)$linea['opciones_elegidas'] as $grupo => $opcion) {
-            if (is_array($opcion)) {
-                $nombre = (string)($opcion['nombre'] ?? '');
-            } else {
-                $nombre = (string)$opcion;
-            }
-            if ($nombre !== '') {
-                $t .= "   >> $nombre\n";
-            }
-        }
-    }
-    if (!empty(trim($linea['comentario'] ?? ''))) {
-        $t .= "   Nota: " . trim($linea['comentario']) . "\n";
+    foreach ($lineasAgrupadas as $linea) {
+        $t .= _lineaProductoEscPosBody($linea);
     }
     $t .= str_repeat('-', 32) . "\n";
     $t .= _escposCut();
