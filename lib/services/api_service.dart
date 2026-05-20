@@ -593,6 +593,36 @@ class ApiService extends ChangeNotifier {
     });
   }
 
+  Future<int> crearNotaLibre({
+    required int idPedido,
+    required String texto,
+    required double pvpConIva,
+    required int idImpresora,
+  }) async {
+    final data = await _request('POST', '/pedidos/$idPedido/nota-libre', body: {
+      'texto': texto.trim(),
+      'pvp_con_iva': pvpConIva,
+      'id_impresora': idImpresora,
+      'terminal_serie': await terminalSerie(),
+    });
+    return int.parse(data['id_linea'].toString());
+  }
+
+  Future<void> editarNotaLibre({
+    required int idPedido,
+    required int idLinea,
+    required String texto,
+    required double pvpConIva,
+  }) async {
+    await _request(
+        'POST', '/pedidos/$idPedido/nota-libre/$idLinea/editar',
+        body: {
+          'texto': texto.trim(),
+          'pvp_con_iva': pvpConIva,
+          'terminal_serie': await terminalSerie(),
+        });
+  }
+
   /// Envía al servidor los nuevos órdenes de productos y/o categorías.
   /// [items] es una lista de mapas con las claves:
   ///   - 'tipo': 'producto' | 'categoria'

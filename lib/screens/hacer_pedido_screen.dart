@@ -1,6 +1,7 @@
 // lib/screens/hacer_pedido_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -416,9 +417,83 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     ));
   }
 
+  // ── Nota / Artículo libre ────────────────────────────────────
+
+  Future<void> _abrirNotaLibre() async {
+    final catalogo = context.read<CatalogoProvider>();
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _NotaLibreDialog(impresoras: catalogo.impresoras),
+    );
+    if (result == null) return;
+    if (result['accion'] == 'guardar') {
+      final api = context.read<ApiService>();
+      try {
+        await api.crearNotaLibre(
+          idPedido: widget.idPedido,
+          texto: result['texto'] as String,
+          pvpConIva: result['pvp_con_iva'] as double,
+          idImpresora: result['id_impresora'] as int,
+        );
+        await _cargarPedido();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Nota añadida'), backgroundColor: Colors.green));
+        }
+      } catch (e) {
+        _showError(e.toString());
+      }
+    }
+  }
+
+  Future<void> _editarNotaLibre(LineaPedido linea) async {
+    final catalogo = context.read<CatalogoProvider>();
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _NotaLibreDialog(
+        impresoras: catalogo.impresoras,
+        textoInicial: linea.nombreProducto,
+        pvpInicial: linea.pvpAlmacenado,
+        modoEdicion: true,
+      ),
+    );
+    if (result == null) return;
+    final mesaPv = context.read<MesaProvider>();
+    if (result['accion'] == 'eliminar') {
+      mesaPv.eliminarLinea(linea);
+      return;
+    }
+    if (result['accion'] == 'guardar') {
+      final api = context.read<ApiService>();
+      try {
+        await api.editarNotaLibre(
+          idPedido: widget.idPedido,
+          idLinea: linea.idLinea!,
+          texto: result['texto'] as String,
+          pvpConIva: result['pvp_con_iva'] as double,
+        );
+        await _cargarPedido();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Nota actualizada'),
+              backgroundColor: Colors.green));
+        }
+      } catch (e) {
+        _showError(e.toString());
+      }
+    }
+  }
+
   void onLineaTap(LineaPedido linea) async {
     final mesaPv = context.read<MesaProvider>();
     if (mesaPv.soloLectura) return;
+
+    // Nota libre: editor especial
+    if (linea.esNotaLibre) {
+      _editarNotaLibre(linea);
+      return;
+    }
+
     final catalogo = context.read<CatalogoProvider>();
     final producto =
         catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
@@ -771,6 +846,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                             lineas: mesaPv.lineas,
                             soloLectura: mesaPv.soloLectura,
                             onLineaTap: onLineaTap,
+                            onNotaLibre: mesaPv.soloLectura
+                                ? null
+                                : _abrirNotaLibre,
                           ),
                         ),
                       ],
@@ -779,6 +857,186 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 ],
               ),
       ),
+    );
+  }
+}
+
+// ── Diálogo: Nota / Artículo libre ───────────────────────────────────────────
+
+class _NotaLibreDialog extends StatefulWidget {
+  final List<Impresora> impresoras;
+  final String? textoInicial;
+  final double pvpInicial;
+  final bool modoEdicion;
+
+  const _NotaLibreDialog({
+    required this.impresoras,
+    this.textoInicial,
+    this.pvpInicial = 0.0,
+    this.modoEdicion = false,
+  });
+
+  @override
+  State<_NotaLibreDialog> createState() => _NotaLibreDialogState();
+}
+
+class _NotaLibreDialogState extends State<_NotaLibreDialog> {
+  final _textoCtrl = TextEditingController();
+  final _pvpCtrl = TextEditingController();
+  int? _idImpresora;
+
+  @override
+  void initState() {
+    super.initState();
+    _textoCtrl.text = widget.textoInicial ?? '';
+    if (widget.pvpInicial > 0) {
+      _pvpCtrl.text = widget.pvpInicial.toStringAsFixed(2);
+    }
+  }
+
+  @override
+  void dispose() {
+    _textoCtrl.dispose();
+    _pvpCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _valido => _textoCtrl.text.trim().isNotEmpty;
+
+  double get _pvp =>
+      double.tryParse(_pvpCtrl.text.trim().replaceAll(',', '.')) ?? 0.0;
+
+  void _confirmar() {
+    Navigator.pop(context, {
+      'accion': 'guardar',
+      'texto': _textoCtrl.text.trim(),
+      'pvp_con_iva': _pvp,
+      'id_impresora': _idImpresora ?? 0,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final dialogWidth = (screenWidth - 32).clamp(0.0, 480.0);
+    final hInset = ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
+
+    return AlertDialog(
+      backgroundColor: AppTheme.colorTarjeta,
+      insetPadding: EdgeInsets.symmetric(horizontal: hInset, vertical: 24),
+      title: Row(
+        children: [
+          Icon(Icons.edit_note, color: Colors.amber[300]),
+          const SizedBox(width: 8),
+          Text(widget.modoEdicion ? 'Editar nota' : 'Nota / Artículo libre'),
+        ],
+      ),
+      content: SizedBox(
+        width: dialogWidth,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Descripción ──────────────────────────────────
+            TextField(
+              controller: _textoCtrl,
+              autofocus: true,
+              onChanged: (_) => setState(() {}),
+              textCapitalization: TextCapitalization.sentences,
+              maxLength: 200,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Descripción *',
+                hintText: 'Ej: Vino de la casa, Servilletero...',
+                hintStyle:
+                    const TextStyle(color: Colors.white38, fontSize: 14),
+                filled: true,
+                fillColor: AppTheme.colorSuperficie,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                counterStyle:
+                    const TextStyle(color: AppTheme.colorTextoGris),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // ── PVP con IVA 10 % ─────────────────────────────
+            TextField(
+              controller: _pvpCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+              ],
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'PVP con IVA 10 % incluido',
+                hintText: '0.00',
+                prefixText: '€  ',
+                prefixStyle: const TextStyle(
+                    color: AppTheme.colorPrimario,
+                    fontWeight: FontWeight.bold),
+                helperText: 'Dejar vacío o 0 si es gratuito',
+                helperStyle:
+                    const TextStyle(color: AppTheme.colorTextoGris),
+                filled: true,
+                fillColor: AppTheme.colorSuperficie,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+            // ── Impresora (solo al crear) ─────────────────────
+            if (!widget.modoEdicion && widget.impresoras.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int?>(
+                value: _idImpresora,
+                dropdownColor: AppTheme.colorTarjeta,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: InputDecoration(
+                  labelText: 'Enviar a impresora',
+                  helperText: 'Opcional — para imprimir en cocina/barra',
+                  helperStyle:
+                      const TextStyle(color: AppTheme.colorTextoGris),
+                  filled: true,
+                  fillColor: AppTheme.colorSuperficie,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Sin impresora'),
+                  ),
+                  for (final imp in widget.impresoras)
+                    DropdownMenuItem<int?>(
+                      value: imp.id,
+                      child: Text(imp.nombre),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _idImpresora = v),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        if (widget.modoEdicion)
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(context, {'accion': 'eliminar'}),
+            style: TextButton.styleFrom(
+                foregroundColor: AppTheme.colorAcento),
+            child: const Text('Eliminar'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _valido ? _confirmar : null,
+          icon: Icon(widget.modoEdicion ? Icons.save : Icons.add, size: 18),
+          label: Text(widget.modoEdicion ? 'Guardar' : 'Añadir'),
+        ),
+      ],
     );
   }
 }

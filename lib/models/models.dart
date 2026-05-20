@@ -188,6 +188,9 @@ class LineaPedido {
   bool impreso;
   int? moverAMesa; // si != null, mover esta línea a otra mesa
   bool editada;
+  /// PVP unitario (IVA incluido) almacenado en BD. Solo fiable para notas libres;
+  /// para productos regulares se recalcula desde el catálogo.
+  final double pvpAlmacenado;
 
   LineaPedido({
     this.idLinea,
@@ -201,9 +204,12 @@ class LineaPedido {
     this.impreso = false,
     this.moverAMesa,
     this.editada = false,
+    this.pvpAlmacenado = 0.0,
   });
 
   bool get esNuevo => idLinea == null;
+  /// Línea de texto libre añadida sin producto del catálogo.
+  bool get esNotaLibre => idProducto == 0;
   List<String> get opcionesNoPredeterminadas => opcionesElegidas.values
       .where((o) => !o.predeterminado)
       .map((o) => o.nombre)
@@ -227,6 +233,14 @@ class LineaPedido {
         }
       });
     }
+    final precioSinIva =
+        double.tryParse((j['precio_sin_IVA'] ?? 0).toString()) ?? 0.0;
+    final pctIva =
+        double.tryParse((j['porcentaje_IVA'] ?? 0).toString()) ?? 0.0;
+    final pvp = precioSinIva > 0
+        ? double.parse(
+            (precioSinIva * (1.0 + pctIva / 100.0)).toStringAsFixed(2))
+        : 0.0;
     return LineaPedido(
       idLinea:
           j['id_linea'] != null ? int.parse(j['id_linea'].toString()) : null,
@@ -239,6 +253,7 @@ class LineaPedido {
       orden: int.parse((j['orden'] ?? 0).toString()),
       impreso: j['impreso'].toString() == '1',
       editada: false,
+      pvpAlmacenado: pvp,
     );
   }
 
@@ -292,6 +307,7 @@ class LineaPedido {
         impreso: impreso,
         moverAMesa: moverAMesa ?? this.moverAMesa,
         editada: editada ?? this.editada,
+        pvpAlmacenado: pvpAlmacenado,
       );
 }
 

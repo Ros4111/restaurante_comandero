@@ -161,6 +161,14 @@ if (preg_match('#^/pedidos/(\d+)/guardar$#', $uri, $m) && $method === 'POST') {
     require __DIR__ . '/endpoints/pedidos.php';
     endpointPedidoGuardar($payload, (int)$m[1]);
 }
+if (preg_match('#^/pedidos/(\d+)/nota-libre$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/pedidos.php';
+    endpointNotaLibre($payload, (int)$m[1]);
+}
+if (preg_match('#^/pedidos/(\d+)/nota-libre/(\d+)/editar$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/pedidos.php';
+    endpointNotaLibreEditar($payload, (int)$m[1], (int)$m[2]);
+}
 
 // Servicio en mesa (líneas pendientes de servir)
 if ($uri === '/servicio/pendientes' && $method === 'GET') {
