@@ -13,6 +13,7 @@ import 'cashlogy_config_screen.dart';
 import 'config_screen.dart';
 import 'datafono_sim_screen.dart';
 import 'dictado_screen.dart';
+import 'historico_mesas_screen.dart';
 import 'nfc_screen.dart';
 import 'producto_editor_screen.dart';
 import 'reordenar_productos_screen.dart';
@@ -102,6 +103,13 @@ class SettingsMenuScreen extends StatelessWidget {
     );
   }
 
+  void _openHistoricoMesas(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const HistoricoMesasScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sesion = context.watch<SesionProvider>();
@@ -187,6 +195,15 @@ class SettingsMenuScreen extends StatelessWidget {
                   onPressed: () => _openDictado(context),
                   icon: const Icon(Icons.mic_outlined),
                   label: const Text('Dictado'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _openHistoricoMesas(context),
+                  icon: const Icon(Icons.history),
+                  label: const Text('Historial · Reabrir mesa cerrada'),
                 ),
               ),
               if (sesion.esUsuarioPrincipal) ...[

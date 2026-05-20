@@ -380,6 +380,87 @@ class MesaResumen {
       );
 }
 
+// ── Historial de mesas cerradas ──────────────────────────────
+
+class MesaHistorico {
+  final int idPedido;
+  final int idMesa;
+  final String nombreCliente;
+  final String? horaCreacion;
+  final String? horaUltimaAccion;
+  final double totalImporte;
+  final int totalLineas;
+
+  const MesaHistorico({
+    required this.idPedido,
+    required this.idMesa,
+    required this.nombreCliente,
+    this.horaCreacion,
+    this.horaUltimaAccion,
+    this.totalImporte = 0.0,
+    this.totalLineas = 0,
+  });
+
+  factory MesaHistorico.fromJson(Map<String, dynamic> j) => MesaHistorico(
+        idPedido: int.parse(j['id_pedido'].toString()),
+        idMesa: int.parse(j['id_mesa'].toString()),
+        nombreCliente: j['nombre_cliente']?.toString() ?? '',
+        horaCreacion: j['hora_creacion']?.toString(),
+        horaUltimaAccion: j['hora_ultima_accion']?.toString(),
+        totalImporte:
+            double.tryParse((j['total_importe'] ?? 0).toString()) ?? 0.0,
+        totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
+      );
+}
+
+class LineaHistorico {
+  final int idLinea;
+  final int idProducto;
+  final int cantidad;
+  final String comentario;
+  final String nombreProducto;
+  final Map<int, OpcionElegida> opcionesElegidas;
+  final double pvpUnitario;
+
+  const LineaHistorico({
+    required this.idLinea,
+    required this.idProducto,
+    required this.cantidad,
+    required this.comentario,
+    required this.nombreProducto,
+    this.opcionesElegidas = const {},
+    this.pvpUnitario = 0.0,
+  });
+
+  factory LineaHistorico.fromJson(Map<String, dynamic> j) {
+    final opRaw = j['opciones_elegidas'];
+    final opciones = <int, OpcionElegida>{};
+    if (opRaw is Map) {
+      opRaw.forEach((k, v) {
+        final idGrupo = int.tryParse(k.toString());
+        if (idGrupo == null) return;
+        if (v is Map) {
+          opciones[idGrupo] =
+              OpcionElegida.fromJson(Map<String, dynamic>.from(v));
+        } else if (v != null) {
+          opciones[idGrupo] =
+              OpcionElegida(nombre: v.toString(), predeterminado: false);
+        }
+      });
+    }
+    return LineaHistorico(
+      idLinea: int.parse(j['id_linea'].toString()),
+      idProducto: int.parse((j['id_producto'] ?? 0).toString()),
+      cantidad: int.parse((j['cantidad'] ?? 1).toString()),
+      comentario: j['comentario']?.toString() ?? '',
+      nombreProducto: j['nombre_producto_pantalla']?.toString() ?? '',
+      opcionesElegidas: opciones,
+      pvpUnitario:
+          double.tryParse((j['pvp_unitario'] ?? 0).toString()) ?? 0.0,
+    );
+  }
+}
+
 /// Línea pendiente de servir en mesa (servido = 2000-01-01).
 class LineaPendienteServir {
   final int idLinea;

@@ -623,6 +623,30 @@ class ApiService extends ChangeNotifier {
         });
   }
 
+  // ── Historial de mesas ─────────────────────────────────────
+  Future<List<MesaHistorico>> getHistoricoMesas({int dias = 0}) async {
+    final path = dias > 0
+        ? '/historico/mesas?dias=$dias'
+        : '/historico/mesas';
+    final list = await _requestList(path);
+    return list
+        .map((j) => MesaHistorico.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> getHistoricoMesaDetalle(int idPedido) async {
+    return await _request('GET', '/historico/mesas/$idPedido');
+  }
+
+  Future<({int idPedido, int idMesa})> reabrirMesa(int idPedido) async {
+    final data = await _request('POST', '/historico/mesas/$idPedido/reabrir',
+        body: {'terminal_serie': await terminalSerie()});
+    return (
+      idPedido: int.parse(data['id_pedido'].toString()),
+      idMesa: int.parse(data['id_mesa'].toString()),
+    );
+  }
+
   /// Envía al servidor los nuevos órdenes de productos y/o categorías.
   /// [items] es una lista de mapas con las claves:
   ///   - 'tipo': 'producto' | 'categoria'

@@ -170,6 +170,20 @@ if (preg_match('#^/pedidos/(\d+)/nota-libre/(\d+)/editar$#', $uri, $m) && $metho
     endpointNotaLibreEditar($payload, (int)$m[1], (int)$m[2]);
 }
 
+// Historial de mesas (solo admin)
+if ($uri === '/historico/mesas' && $method === 'GET') {
+    require __DIR__ . '/endpoints/historico.php';
+    endpointHistoricoMesasListar($payload);
+}
+if (preg_match('#^/historico/mesas/(\d+)$#', $uri, $m) && $method === 'GET') {
+    require __DIR__ . '/endpoints/historico.php';
+    endpointHistoricoMesaDetalle($payload, (int)$m[1]);
+}
+if (preg_match('#^/historico/mesas/(\d+)/reabrir$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/historico.php';
+    endpointHistoricoMesaReabrir($payload, (int)$m[1]);
+}
+
 // Servicio en mesa (líneas pendientes de servir)
 if ($uri === '/servicio/pendientes' && $method === 'GET') {
     require __DIR__ . '/endpoints/servicio.php';
