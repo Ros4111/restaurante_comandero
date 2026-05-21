@@ -120,7 +120,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
     $body  = getBody();
     $lineas = $body['lineas'] ?? [];   // array de líneas enviadas por el móvil
     if (!is_array($lineas)) jsonError('Formato incorrecto');
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
     $nombreCliente = _nombreClienteDesdeBody($body);
 
     $db = getDB();
@@ -206,7 +206,11 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             // Mover mesa
             $mesaDest = isset($envRow['mover_a_mesa']) ? (int)$envRow['mover_a_mesa'] : 0;
             if ($mesaDest > 0) {
-                $destPedidoId = _obtenerOCrearPedido($db, $mesaDest, $payload['sub'], $terminalSerie);
+                if ((int)$cab['id_mesa'] === $mesaDest) {
+                    jsonError('La mesa destino es la misma que la de origen', 400);
+                }
+                verificarMesaDestinoNoBloqueadaPorOtro($db, $mesaDest, $terminalSerie, true);
+                $destPedidoId = _obtenerOCrearPedido($db, $mesaDest, $payload['sub']);
                 $maxOrden = _maxOrden($db, $destPedidoId);
                 $db->prepare(
                     'UPDATE pedido_detalles SET id_pedido=?, orden=?, impreso=0
@@ -216,6 +220,8 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                     'id_linea'    => $lid,
                     'mesa_origen' => $cab['id_mesa'],
                     'mesa_dest'   => $mesaDest,
+                    'producto'    => $bdRow['nombre_producto_pantalla'],
+                    'cantidad'    => (int)$bdRow['cantidad'],
                 ]);
                 // Imprimir nota de cambio de mesa en impresora del producto
                 $idImp = _idImpresora($db, (int)$bdRow['id_producto']);
@@ -236,9 +242,22 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $cambios['producto']  = $bdRow['nombre_producto_pantalla'];
                 _registrarCambio($db, $payload['sub'], 'modificar', $cambios);
 
-                $db->prepare(
-                    'UPDATE pedido_detalles SET cantidad=?, comentario=? WHERE id_linea=?'
-                )->execute([(int)$envRow['cantidad'], $comentNew, $lid]);
+                if ((int)$bdRow['impreso'] === 1) {
+                    $db->prepare(
+                        'UPDATE pedido_detalles
+                            SET cantidad=?, comentario=?, modificado_servicio=1, servido=?
+                          WHERE id_linea=?'
+                    )->execute([
+                        (int)$envRow['cantidad'],
+                        $comentNew,
+                        '2000-01-01 00:00:00',
+                        $lid,
+                    ]);
+                } else {
+                    $db->prepare(
+                        'UPDATE pedido_detalles SET cantidad=?, comentario=? WHERE id_linea=?'
+                    )->execute([(int)$envRow['cantidad'], $comentNew, $lid]);
+                }
                 $huboCambios = true;
             }
         }
@@ -301,8 +320,9 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                     'nombre_producto_pantalla'=> $txtProd['nombre_producto_pantalla'],
                     'texto_imprimir_cocina'   => $txtProd['texto_imprimir_cocina'],
                 ];
-                $db->prepare('UPDATE pedido_detalles SET impreso=1 WHERE id_linea=?')
-                   ->execute([$newId]);
+                $db->prepare(
+                    'UPDATE pedido_detalles SET impreso=1, servido=? WHERE id_linea=?'
+                )->execute(['2000-01-01 00:00:00', $newId]);
             }
         }
 
@@ -408,7 +428,7 @@ function _maxOrden(PDO $db, int $idPedido): int {
     return (int)($st->fetch()['m'] ?? 0);
 }
 
-function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser, string $terminalSerie): int {
+function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser): int {
     $st = $db->prepare('SELECT id_pedido FROM pedido_cabecera WHERE id_mesa = ? LIMIT 1');
     $st->execute([$idMesa]);
     $row = $st->fetch();
@@ -417,18 +437,9 @@ function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser, string $termina
     $db->prepare(
         'INSERT INTO pedido_cabecera
          (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, terminal_serie_bloqueo)
-         VALUES (?,?,?,NOW(),NULL,?)'
-    )->execute([$idMesa, $idUser, $idUser, $terminalSerie]);
+         VALUES (?, ?, 0, NULL, NOW(), NULL)'
+    )->execute([$idMesa, $idUser]);
     return (int)$db->lastInsertId();
-}
-
-function _terminalSerieDesdeBody(array $body): string {
-    $terminal = trim((string)($body['terminal_serie'] ?? ''));
-    if ($terminal === '') jsonError('Falta terminal_serie', 400);
-    if (strlen($terminal) > 120) {
-        $terminal = substr($terminal, 0, 120);
-    }
-    return $terminal;
 }
 
 function _nombreClienteDesdeBody(array $body): ?string {
@@ -599,7 +610,7 @@ function endpointNotaLibre(array $payload, int $idPedido): void {
 
     $pvpConIva   = max(0.0, (float)($body['pvp_con_iva']  ?? 0));
     $idImpresora = (int)($body['id_impresora'] ?? 0);
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
 
     // PVP indicado IVA 10 % incluido → desglosar
     $pct         = 10.0;
@@ -672,7 +683,7 @@ function endpointNotaLibreEditar(array $payload, int $idPedido, int $idLinea): v
     if (mb_strlen($texto) > 200) $texto = mb_substr($texto, 0, 200);
 
     $pvpConIva     = max(0.0, (float)($body['pvp_con_iva'] ?? 0));
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
 
     $pct          = 10.0;
     $factor       = 1.0 + $pct / 100.0;

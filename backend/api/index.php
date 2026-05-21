@@ -129,6 +129,10 @@ if (preg_match('#^/mesas/(\d+)/bloquear$#', $uri, $m) && $method === 'POST') {
     require __DIR__ . '/endpoints/mesas.php';
     endpointMesaBloquear($payload, (int)$m[1]);
 }
+if (preg_match('#^/mesas/(\d+)/desbloquear$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/mesas.php';
+    endpointMesaDesbloquear($payload, (int)$m[1]);
+}
 if (preg_match('#^/mesas/(\d+)/ping$#', $uri, $m) && $method === 'POST') {
     require __DIR__ . '/endpoints/mesas.php';
     endpointMesaPing($payload, (int)$m[1]);
@@ -144,6 +148,10 @@ if (preg_match('#^/mesas/(\d+)/expulsar$#', $uri, $m) && $method === 'POST') {
 if (preg_match('#^/mesas/(\d+)/traspasar$#', $uri, $m) && $method === 'POST') {
     require __DIR__ . '/endpoints/mesas.php';
     endpointMesaTraspasar($payload, (int)$m[1]);
+}
+if (preg_match('#^/mesas/(\d+)/movimientos$#', $uri, $m) && $method === 'GET') {
+    require __DIR__ . '/endpoints/mesas.php';
+    endpointMesaMovimientos($payload, (int)$m[1]);
 }
 
 // Dispositivos

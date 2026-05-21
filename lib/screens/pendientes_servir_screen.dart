@@ -371,8 +371,12 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     final sel = _lineasSeleccionadas(pedido);
     final cliente = pedido.nombreCliente.trim();
     final hora = pedido.horaPedido.trim();
+    final tieneModificadas =
+        pedido.lineas.any((l) => l.modificado);
     return Card(
-      color: AppTheme.colorTarjeta,
+      color: tieneModificadas
+          ? const Color(0xFF1E3324)
+          : AppTheme.colorTarjeta,
       clipBehavior: Clip.antiAlias,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -380,7 +384,9 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            color: const Color(0xFF2A3344),
+            color: tieneModificadas
+                ? const Color(0xFF2A4030)
+                : const Color(0xFF2A3344),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -441,6 +447,18 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                       fontSize: _fs(13),
                     ),
                   ),
+                if (tieneModificadas)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Pedido modificado',
+                      style: TextStyle(
+                        color: AppTheme.colorLineasModificadas,
+                        fontSize: _fs(12),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -481,30 +499,61 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
             .where((n) => n.isNotEmpty)
             .toList();
     final subtitulo = _subtituloLinea(l, opciones);
+    final colorLinea = l.modificado
+        ? AppTheme.colorLineasModificadas
+        : AppTheme.colorTexto;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Checkbox(
-            value: checked,
-            onChanged:
-                _marcando ? null : (v) => _toggleLinea(clave, l, v),
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            visualDensity: VisualDensity.compact,
+      child: DecoratedBox(
+        decoration: l.modificado
+            ? BoxDecoration(
+                color: const Color(0xFF66BB6A).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: AppTheme.colorLineasModificadas.withValues(alpha: 0.5),
+                ),
+              )
+            : const BoxDecoration(),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: l.modificado ? 6 : 0,
+            vertical: l.modificado ? 4 : 0,
           ),
-          Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                titulo,
-                style: TextStyle(fontSize: _fs(15)),
+              Checkbox(
+                value: checked,
+                onChanged:
+                    _marcando ? null : (v) => _toggleLinea(clave, l, v),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                activeColor: l.modificado
+                    ? AppTheme.colorLineasModificadas
+                    : null,
               ),
-              if (subtitulo != null) subtitulo,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      titulo,
+                      style: TextStyle(
+                        fontSize: _fs(15),
+                        color: colorLinea,
+                        fontWeight: l.modificado
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    if (subtitulo != null) subtitulo,
+                  ],
+                ),
+              ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -535,7 +584,9 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
           l.comentario,
           style: TextStyle(
             fontSize: _fs(12),
-            color: AppTheme.colorTextoGris,
+            color: l.modificado
+                ? AppTheme.colorLineasModificadas.withValues(alpha: 0.85)
+                : AppTheme.colorTextoGris,
             fontStyle: FontStyle.italic,
           ),
         ),

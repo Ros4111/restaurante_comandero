@@ -12,6 +12,7 @@ import '../services/sunmi_service.dart';
 import '../utils/theme.dart';
 import 'hacer_pedido_screen.dart';
 import 'login_screen.dart';
+import 'mesa_movimientos_screen.dart';
 import 'settings_menu_screen.dart';
 
 class MesasScreen extends StatefulWidget {
@@ -82,6 +83,7 @@ class _MesasScreenState extends State<MesasScreen> {
           horaCreacion: m.horaCreacion,
           horaUltimaAccion: m.horaUltimaAccion,
           totalLineas: m.totalLineas,
+          totalImporte: m.totalImporte,
         );
       }).toList();
 
@@ -163,6 +165,9 @@ class _MesasScreenState extends State<MesasScreen> {
     try {
       final idPedido = await api.abrirMesa(num);
       _navPedido(idPedido, num, bloqueadoPorMi: true);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _fabVisible = true);
+      _showError(e.message);
     } catch (e) {
       if (mounted) setState(() => _fabVisible = true);
       _showError(e.toString());
@@ -175,12 +180,15 @@ class _MesasScreenState extends State<MesasScreen> {
       await api.bloquearMesa(mesa.idPedido);
       _navPedido(mesa.idPedido, mesa.idMesa, bloqueadoPorMi: true);
     } on ApiException catch (e) {
-      if (e.statusCode == 409) {
+      if (e.statusCode == 409 &&
+          e.message.contains('ya tiene abierta la mesa')) {
+        _showError(e.message);
+      } else if (e.statusCode == 409) {
         // Mesa bloqueada por otro: entrar en solo lectura
         _navPedido(mesa.idPedido, mesa.idMesa,
             bloqueadoPorMi: false, bloqueador: mesa.nombreUsuarioBloqueo);
       } else {
-        _showError(e.toString());
+        _showError(e.message);
       }
     } catch (e) {
       _showError(e.toString());
@@ -211,17 +219,22 @@ class _MesasScreenState extends State<MesasScreen> {
         SnackBar(content: Text(msg), backgroundColor: Colors.red[700]));
   }
 
+  /// Bloqueo vigente de otro terminal (no el de este dispositivo).
+  bool _mesaBloqueadaPorOtro(MesaResumen mesa) {
+    final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
+    if (serieBloqueo.isEmpty) return false;
+    final yo = (_terminalSerie ?? '').trim();
+    return yo.isEmpty || serieBloqueo != yo;
+  }
+
   // ── Menú largo pulsado sobre una mesa ──────────────────────
 
   Future<void> _mostrarOpcionesMesa(MesaResumen mesa) async {
     if (_cargandoMesa) return;
     final sesion = context.read<SesionProvider>();
 
-    // ¿Está bloqueada por un terminal distinto al nuestro?
+    final bloqueadaPorOtro = _mesaBloqueadaPorOtro(mesa);
     final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
-    final bloqueadaPorOtro = serieBloqueo.isNotEmpty &&
-        _terminalSerie != null &&
-        serieBloqueo != _terminalSerie;
     final nombreBloqueador =
         (mesa.nombreUsuarioBloqueo ?? serieBloqueo).trim();
 
@@ -314,6 +327,28 @@ class _MesasScreenState extends State<MesasScreen> {
                     _imprimirPrecuenta(mesa);
                   },
                 ),
+                if (sesion.esAdmin)
+                  ListTile(
+                    leading: const Icon(Icons.history, color: Colors.white70),
+                    title: const Text('Movimientos'),
+                    subtitle: const Text(
+                      'Altas, bajas y traspasos de productos',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MesaMovimientosScreen(
+                            idPedido: mesa.idPedido,
+                            idMesa: mesa.idMesa,
+                            nombreCliente: mesa.nombreCliente,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 // Opción: Mover mesa (solo supervisor/admin)
                 if (sesion.esSupervisor)
                   ListTile(
@@ -327,15 +362,15 @@ class _MesasScreenState extends State<MesasScreen> {
                       _traspasarMesa(mesa);
                     },
                   ),
-                // Opción: Expulsar terminal bloqueante (solo admin, solo si hay bloqueo ajeno)
-                if (sesion.esAdmin && bloqueadaPorOtro)
+                // Expulsar bloqueo ajeno (supervisor / admin)
+                if (sesion.esSupervisor && bloqueadaPorOtro)
                   ListTile(
                     leading: const Icon(Icons.phonelink_erase,
                         color: Colors.redAccent),
                     title: const Text('Expulsar terminal bloqueante',
                         style: TextStyle(color: Colors.redAccent)),
                     subtitle: Text(
-                      'Liberar el bloqueo de $nombreBloqueador y tomar el control',
+                      'Quitar el bloqueo de $nombreBloqueador en esta mesa',
                       style: const TextStyle(fontSize: 12),
                     ),
                     onTap: () {
@@ -353,7 +388,7 @@ class _MesasScreenState extends State<MesasScreen> {
 
   Future<void> _expulsarTerminal(
       MesaResumen mesa, String nombreBloqueador) async {
-    final ok = await showDialog<bool>(
+    final accion = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.colorTarjeta,
@@ -397,11 +432,15 @@ class _MesasScreenState extends State<MesasScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancelar'),
           ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'liberar'),
+            child: const Text('Solo liberar'),
+          ),
           ElevatedButton.icon(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () => Navigator.pop(ctx, 'entrar'),
             style:
                 ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
             icon: const Icon(Icons.phonelink_erase, size: 18),
@@ -410,21 +449,34 @@ class _MesasScreenState extends State<MesasScreen> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (accion == null || accion.isEmpty) return;
 
     final api = context.read<ApiService>();
     try {
-      // Expulsar al otro terminal (el backend transfiere el bloqueo al nuestro)
       await api.expulsarUsuario(mesa.idPedido);
+      if (accion == 'liberar') {
+        await api.desbloquearMesa(mesa.idPedido);
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            'Terminal de $nombreBloqueador expulsado · entrando en mesa ${mesa.idMesa}'),
-        backgroundColor: Colors.orange[800],
-        duration: const Duration(seconds: 3),
-      ));
-      // Entrar directamente a la mesa (el bloqueo ya es nuestro)
-      _entrarMesa(mesa);
+      if (accion == 'entrar') {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Terminal de $nombreBloqueador expulsado · entrando en mesa ${mesa.idMesa}'),
+          backgroundColor: Colors.orange[800],
+          duration: const Duration(seconds: 3),
+        ));
+        _entrarMesa(mesa);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Mesa ${mesa.idMesa} liberada (expulsado $nombreBloqueador)'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ));
+        _cargar();
+      }
+    } on ApiException catch (e) {
+      _showError(e.message);
     } catch (e) {
       _showError(e.toString());
     }
@@ -532,6 +584,8 @@ class _MesasScreenState extends State<MesasScreen> {
           content: Text('Mesa ${mesa.idMesa} traspasada a mesa $numMesa'),
           backgroundColor: Colors.green));
       _cargar();
+    } on ApiException catch (e) {
+      _showError(e.message);
     } catch (e) {
       _showError(e.toString());
     }
@@ -776,9 +830,9 @@ class _MesaTile extends StatelessWidget {
     final diaCreacion = _diaCalendarioDesdeHoraCreacion(mesa.horaCreacion);
     final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
     final nombreCliente = (mesa.nombreCliente ?? '').trim();
-    final bloqueadaPorOtro = serieBloqueo.isNotEmpty &&
-        terminalSerieActual != null &&
-        serieBloqueo != terminalSerieActual;
+    final yo = (terminalSerieActual ?? '').trim();
+    final bloqueadaPorOtro =
+        serieBloqueo.isNotEmpty && (yo.isEmpty || serieBloqueo != yo);
 
     return GestureDetector(
       onTap: onTap,

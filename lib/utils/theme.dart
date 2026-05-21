@@ -12,6 +12,8 @@ class AppTheme {
   static const colorCategorias = Color(0xFF1565C0);
   static const colorLineasNuevas = Color(0xFFFF1744);
   static const colorLineasViejas = Colors.white;
+  /// Líneas modificadas tras envío (cocina / pendientes de servir).
+  static const colorLineasModificadas = Color(0xFF66BB6A);
 
   static ThemeData get dark => ThemeData(
         brightness: Brightness.dark,

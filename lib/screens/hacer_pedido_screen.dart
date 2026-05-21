@@ -48,6 +48,7 @@ class HacerPedidoScreen extends StatefulWidget {
 }
 
 class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
+  late final ApiService _api;
   Timer? _pingTimer;
   bool _guardando = false;
   bool _offline = false;
@@ -61,6 +62,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   @override
   void initState() {
     super.initState();
+    _api = context.read<ApiService>();
     _clienteCtrl.clear();
     _cargarPedido();
     if (widget.bloqueadoPorMi) {
@@ -72,6 +74,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   @override
   void dispose() {
     _pingTimer?.cancel();
+    if (widget.bloqueadoPorMi) {
+      _api.desbloquearMesa(widget.idPedido).ignore();
+    }
     _clienteCtrl.dispose();
     _buscarCatalogoCtrl.dispose();
     super.dispose();

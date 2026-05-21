@@ -552,6 +552,12 @@ class ApiService extends ChangeNotifier {
     });
   }
 
+  Future<void> desbloquearMesa(int idPedido) async {
+    await _request('POST', '/mesas/$idPedido/desbloquear', body: {
+      'terminal_serie': await terminalSerie(),
+    });
+  }
+
   Future<void> pingMesa(int idPedido) async {
     await _request('POST', '/mesas/$idPedido/ping', body: {
       'terminal_serie': await terminalSerie(),
@@ -573,7 +579,13 @@ class ApiService extends ChangeNotifier {
   Future<void> traspasarMesa(int idPedido, int idMesaDestino) async {
     await _request('POST', '/mesas/$idPedido/traspasar', body: {
       'id_mesa_destino': idMesaDestino,
+      'terminal_serie': await terminalSerie(),
     });
+  }
+
+  Future<MesaMovimientos> getMesaMovimientos(int idPedido) async {
+    final data = await _request('GET', '/mesas/$idPedido/movimientos');
+    return MesaMovimientos.fromJson(data);
   }
 
   // ── Pedidos ────────────────────────────────────────────────

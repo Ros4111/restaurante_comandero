@@ -2,18 +2,6 @@
 // backend/api/endpoints/catalogo.php
 declare(strict_types=1);
 
-function ensureTablaCodigosColumn(PDO $db): void {
-    try {
-        $check = $db->query("SHOW COLUMNS FROM impresoras LIKE 'tabla_codigos'");
-        $exists = $check && $check->fetch();
-        if (!$exists) {
-            $db->exec("ALTER TABLE impresoras ADD COLUMN tabla_codigos VARCHAR(32) NOT NULL DEFAULT 'CP1252' AFTER puerto");
-        }
-    } catch (Throwable $e) {
-        // Si falla el ALTER o la comprobación, el SELECT posterior devolverá error controlado.
-    }
-}
-
 function endpointCatalogoReordenar(array $payload): void {
     requireRole($payload, ['admin', 'supervisor']);
 

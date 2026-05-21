@@ -66,3 +66,100 @@ function logEvent(string $desc, string $level = 'info'): void {
         $st->execute([$desc, $level]);
     } catch (Throwable $e) {}
 }
+
+function terminalSerieDesdeBody(array $body): string {
+    $terminal = trim((string)($body['terminal_serie'] ?? ''));
+    if ($terminal === '') {
+        jsonError('Falta terminal_serie', 400);
+    }
+    if (strlen($terminal) > 120) {
+        $terminal = substr($terminal, 0, 120);
+    }
+    return $terminal;
+}
+
+function ensureTablaCodigosColumn(PDO $db): void {
+    try {
+        $check = $db->query("SHOW COLUMNS FROM impresoras LIKE 'tabla_codigos'");
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                "ALTER TABLE impresoras ADD COLUMN tabla_codigos VARCHAR(32) NOT NULL DEFAULT 'CP1252' AFTER puerto"
+            );
+        }
+    } catch (Throwable $e) {
+        // El SELECT posterior fallará con mensaje claro si falta la columna.
+    }
+}
+
+/** Un terminal solo puede tener una mesa con bloqueo de edición vigente. */
+function verificarTerminalSinOtraMesaAbierta(
+    PDO $db,
+    string $terminalSerie,
+    int $exceptoIdPedido = 0
+): void {
+    $sql = 'SELECT id_mesa FROM pedido_cabecera
+              WHERE terminal_serie_bloqueo = ?
+                AND hora_bloqueo IS NOT NULL
+                AND DATE_ADD(hora_bloqueo, INTERVAL ? SECOND) > NOW()';
+    $params = [$terminalSerie, LOCK_TTL];
+    if ($exceptoIdPedido > 0) {
+        $sql .= ' AND id_pedido != ?';
+        $params[] = $exceptoIdPedido;
+    }
+    $sql .= ' LIMIT 1';
+    $st = $db->prepare($sql);
+    $st->execute($params);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if ($row) {
+        jsonError(
+            'Este dispositivo ya tiene abierta la mesa ' . (int)$row['id_mesa'] .
+            '. Guárdala o sal antes de abrir otra.',
+            409
+        );
+    }
+}
+
+function liberarBloqueoMesaTerminal(PDO $db, int $idPedido, string $terminalSerie): void {
+    $db->prepare(
+        'UPDATE pedido_cabecera
+            SET id_usuario_bloqueo = 0,
+                terminal_serie_bloqueo = NULL,
+                hora_bloqueo = NULL
+          WHERE id_pedido = ?
+            AND terminal_serie_bloqueo = ?'
+    )->execute([$idPedido, $terminalSerie]);
+}
+
+/**
+ * Impide mover líneas o traspasar a una mesa con pedido activo bloqueado por otro terminal.
+ */
+function verificarMesaDestinoNoBloqueadaPorOtro(
+    PDO $db,
+    int $idMesa,
+    string $terminalSerie,
+    bool $forUpdate = false
+): void {
+    $sql = 'SELECT terminal_serie_bloqueo, hora_bloqueo
+              FROM pedido_cabecera WHERE id_mesa = ? LIMIT 1';
+    if ($forUpdate) {
+        $sql = 'SELECT terminal_serie_bloqueo, hora_bloqueo
+                  FROM pedido_cabecera WHERE id_mesa = ? FOR UPDATE';
+    }
+    $st = $db->prepare($sql);
+    $st->execute([$idMesa]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return;
+    }
+    $bloqueoPorOtro = !empty($row['terminal_serie_bloqueo']) &&
+                      $row['terminal_serie_bloqueo'] !== $terminalSerie &&
+                      $row['hora_bloqueo'] &&
+                      (strtotime((string)$row['hora_bloqueo']) + LOCK_TTL) > time();
+    if ($bloqueoPorOtro) {
+        $terminalBloqueador = $row['terminal_serie_bloqueo'] ?? 'Desconocido';
+        jsonError(
+            "La mesa destino ($idMesa) está bloqueada por el terminal $terminalBloqueador",
+            409
+        );
+    }
+}

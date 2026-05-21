@@ -37,7 +37,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String _mensajeEstado = 'Introduce el importe y pulsa COBRAR';
   CashlogyChargeResult? _resultado;
   CashlogyConfig? _config;
-  int _contadorOp = 0;
 
   @override
   void initState() {
@@ -67,8 +66,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Teclado ──────────────────────────────────────────────────
 
   void _pulsarDigito(String d) {
-    if (_estado != _Estado.listo && _estado != _Estado.exito &&
-        _estado != _Estado.cancelado && _estado != _Estado.error) return;
+    if (_estado != _Estado.listo &&
+        _estado != _Estado.exito &&
+        _estado != _Estado.cancelado &&
+        _estado != _Estado.error) {
+      return;
+    }
     setState(() {
       if (_estado != _Estado.listo) {
         // Tras un resultado, empezar nuevo importe
@@ -84,8 +87,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _pulsarBorrar() {
-    if (_estado != _Estado.listo && _estado != _Estado.exito &&
-        _estado != _Estado.cancelado && _estado != _Estado.error) return;
+    if (_estado != _Estado.listo &&
+        _estado != _Estado.exito &&
+        _estado != _Estado.cancelado &&
+        _estado != _Estado.error) {
+      return;
+    }
     setState(() {
       if (_estado != _Estado.listo) {
         _digitos = '';
@@ -103,7 +110,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _pulsarLimpiar() {
     if (_estado == _Estado.cobrando ||
         _estado == _Estado.conectando ||
-        _estado == _Estado.inicializando) return;
+        _estado == _Estado.inicializando) {
+      return;
+    }
     setState(() {
       _digitos = '';
       _resultado = null;
@@ -128,7 +137,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    _contadorOp++;
     final numOp = 'TPV${DateTime.now().millisecondsSinceEpoch}';
     final centimos = _importeCentimos;
     final cfg = _config!;
@@ -151,16 +159,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!init.ok) {
         setState(() {
           _estado = _Estado.error;
-          _mensajeEstado =
-              'Error al inicializar: ${init.error ?? init.raw}';
+          _mensajeEstado = 'Error al inicializar: ${init.error ?? init.raw}';
         });
         return;
       }
 
       setState(() {
         _estado = _Estado.cobrando;
-        _mensajeEstado =
-            'Esperando efectivo en Cashlogy…\n'
+        _mensajeEstado = 'Esperando efectivo en Cashlogy…\n'
             'El cliente debe introducir ${_fmtEuros.format(centimos / 100.0)} €';
       });
 
@@ -184,7 +190,8 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _resultado = result;
         _estado = result.ok ? _Estado.exito : _Estado.error;
-        _mensajeEstado = result.ok ? '¡Cobro completado!' : result.message ?? 'Error';
+        _mensajeEstado =
+            result.ok ? '¡Cobro completado!' : result.message ?? 'Error';
       });
     } on CashlogyException catch (e) {
       if (!mounted) return;
@@ -355,8 +362,11 @@ class _ResultadoPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = resultado;
-    if (r == null || estado == _Estado.listo || estado == _Estado.conectando ||
-        estado == _Estado.inicializando || estado == _Estado.cobrando) {
+    if (r == null ||
+        estado == _Estado.listo ||
+        estado == _Estado.conectando ||
+        estado == _Estado.inicializando ||
+        estado == _Estado.cobrando) {
       return const SizedBox(height: 4);
     }
 
@@ -433,8 +443,7 @@ class _ResultadoPanel extends StatelessWidget {
             Text(
               r.message!,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: Colors.white70, fontSize: 12),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
           ],
         ],
@@ -459,7 +468,9 @@ class _Fila extends StatelessWidget {
               style: const TextStyle(color: Colors.white54, fontSize: 13)),
           Text(valor,
               style: const TextStyle(
-                  color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -525,9 +536,8 @@ class _Btn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = disabled
-        ? const Color(0xFF161B22)
-        : (color ?? const Color(0xFF21262D));
+    final bg =
+        disabled ? const Color(0xFF161B22) : (color ?? const Color(0xFF21262D));
     return Material(
       color: bg,
       borderRadius: BorderRadius.circular(10),
@@ -619,9 +629,8 @@ class _BotonCobrar extends StatelessWidget {
           child: ElevatedButton(
             onPressed: onCobrar,
             style: ElevatedButton.styleFrom(
-              backgroundColor: ocupado
-                  ? const Color(0xFF21262D)
-                  : const Color(0xFF1A7F37),
+              backgroundColor:
+                  ocupado ? const Color(0xFF21262D) : const Color(0xFF1A7F37),
               foregroundColor: Colors.white,
               disabledBackgroundColor: const Color(0xFF21262D),
               disabledForegroundColor: Colors.white24,
@@ -631,8 +640,7 @@ class _BotonCobrar extends StatelessWidget {
             ),
             child: ocupado
                 ? const Text('PROCESANDO…',
-                    style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold))
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
                 : const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

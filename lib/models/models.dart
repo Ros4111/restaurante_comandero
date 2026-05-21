@@ -471,6 +471,8 @@ class LineaPendienteServir {
   final String comentario;
   final String nombre;
   final Map<int, OpcionElegida> opcionesElegidas;
+  /// Línea ya enviada a cocina y modificada después (cantidad/comentario).
+  final bool modificado;
 
   const LineaPendienteServir({
     required this.idLinea,
@@ -480,6 +482,7 @@ class LineaPendienteServir {
     required this.comentario,
     required this.nombre,
     this.opcionesElegidas = const {},
+    this.modificado = false,
   });
 
   factory LineaPendienteServir.fromJson(Map<String, dynamic> j) {
@@ -499,6 +502,9 @@ class LineaPendienteServir {
       comentario: j['comentario']?.toString() ?? '',
       nombre: j['nombre_producto_pantalla']?.toString() ?? '',
       opcionesElegidas: _opcionesDesdeJson(j['opciones_elegidas']),
+      modificado: j['modificado'] == true ||
+          j['modificado']?.toString() == '1' ||
+          j['modificado_servicio']?.toString() == '1',
     );
   }
 
@@ -553,6 +559,76 @@ class PedidoPendienteServir {
           .map((e) =>
               LineaPendienteServir.fromJson(e as Map<String, dynamic>))
           .toList(),
+    );
+  }
+}
+
+/// Entrada del historial de movimientos de una mesa (registro_cambios).
+class MovimientoMesaItem {
+  final String fechaHora;
+  final String usuario;
+  final String producto;
+  final int cantidad;
+  final int? mesaOrigen;
+  final int? mesaDestino;
+
+  const MovimientoMesaItem({
+    required this.fechaHora,
+    required this.usuario,
+    required this.producto,
+    required this.cantidad,
+    this.mesaOrigen,
+    this.mesaDestino,
+  });
+
+  factory MovimientoMesaItem.fromJson(Map<String, dynamic> j) {
+    int? mesaOpt(dynamic v) {
+      if (v == null) return null;
+      final n = int.tryParse(v.toString());
+      return n != null && n > 0 ? n : null;
+    }
+
+    return MovimientoMesaItem(
+      fechaHora: j['fecha_hora']?.toString() ?? '',
+      usuario: j['usuario']?.toString() ?? '',
+      producto: j['producto']?.toString() ?? '—',
+      cantidad: int.tryParse((j['cantidad'] ?? 1).toString()) ?? 1,
+      mesaOrigen: mesaOpt(j['mesa_origen']),
+      mesaDestino: mesaOpt(j['mesa_destino']),
+    );
+  }
+}
+
+class MesaMovimientos {
+  final int idMesa;
+  final int idPedido;
+  final List<MovimientoMesaItem> nuevos;
+  final List<MovimientoMesaItem> eliminados;
+  final List<MovimientoMesaItem> enviados;
+  final List<MovimientoMesaItem> recibidos;
+
+  const MesaMovimientos({
+    required this.idMesa,
+    required this.idPedido,
+    required this.nuevos,
+    required this.eliminados,
+    required this.enviados,
+    required this.recibidos,
+  });
+
+  factory MesaMovimientos.fromJson(Map<String, dynamic> j) {
+    List<MovimientoMesaItem> lista(dynamic raw) => (raw as List? ?? [])
+        .map((e) =>
+            MovimientoMesaItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    return MesaMovimientos(
+      idMesa: int.parse(j['id_mesa'].toString()),
+      idPedido: int.parse(j['id_pedido'].toString()),
+      nuevos: lista(j['nuevos']),
+      eliminados: lista(j['eliminados']),
+      enviados: lista(j['enviados']),
+      recibidos: lista(j['recibidos']),
     );
   }
 }

@@ -22,7 +22,7 @@ function endpointMesaAbrir(array $payload): void {
     $body  = getBody();
     $mesa  = (int)($body['id_mesa'] ?? 0);
     if ($mesa <= 0) jsonError('Número de mesa inválido');
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
 
     $db = getDB();
 
@@ -33,6 +33,7 @@ function endpointMesaAbrir(array $payload): void {
 
     $db->beginTransaction();
     try {
+        verificarTerminalSinOtraMesaAbierta($db, $terminalSerie);
         $st = $db->prepare(
             'INSERT INTO pedido_cabecera
              (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, terminal_serie_bloqueo)
@@ -51,7 +52,7 @@ function endpointMesaAbrir(array $payload): void {
 // ── Bloquear mesa ─────────────────────────────────────────────
 function endpointMesaBloquear(array $payload, int $idPedido): void {
     $body = getBody();
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
     $db->beginTransaction();
     try {
@@ -75,6 +76,8 @@ function endpointMesaBloquear(array $payload, int $idPedido): void {
             jsonError("Mesa bloqueada por terminal $terminalBloqueador", 409);
         }
 
+        verificarTerminalSinOtraMesaAbierta($db, $terminalSerie, $idPedido);
+
         $db->prepare(
             'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW(), terminal_serie_bloqueo=?
               WHERE id_pedido=?'
@@ -88,10 +91,19 @@ function endpointMesaBloquear(array $payload, int $idPedido): void {
     }
 }
 
+// ── Desbloquear al salir sin guardar ──────────────────────────
+function endpointMesaDesbloquear(array $payload, int $idPedido): void {
+    $body = getBody();
+    $terminalSerie = terminalSerieDesdeBody($body);
+    $db = getDB();
+    liberarBloqueoMesaTerminal($db, $idPedido, $terminalSerie);
+    jsonOk(['desbloqueado' => true]);
+}
+
 // ── Ping de bloqueo (cada minuto) ─────────────────────────────
 function endpointMesaPing(array $payload, int $idPedido): void {
     $body = getBody();
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
     $st = $db->prepare(
         'UPDATE pedido_cabecera
@@ -107,8 +119,9 @@ function endpointMesaPing(array $payload, int $idPedido): void {
 function endpointMesaExpulsar(array $payload, int $idPedido): void {
     requireRole($payload, ['admin', 'supervisor']);
     $body = getBody();
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
+    verificarTerminalSinOtraMesaAbierta($db, $terminalSerie, $idPedido);
     $db->prepare(
         'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW(), terminal_serie_bloqueo=?
           WHERE id_pedido=?'
@@ -119,7 +132,7 @@ function endpointMesaExpulsar(array $payload, int $idPedido): void {
 // ── Cerrar mesa (mover a histórico) ──────────────────────────
 function endpointMesaCerrar(array $payload, int $idPedido): void {
     $body = getBody();
-    $terminalSerie = _terminalSerieDesdeBody($body);
+    $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
     $db->beginTransaction();
     try {
@@ -166,21 +179,13 @@ function _verificarBloqueo(array $cab, array $payload, string $terminalSerie): v
     }
 }
 
-function _terminalSerieDesdeBody(array $body): string {
-    $terminal = trim((string)($body['terminal_serie'] ?? ''));
-    if ($terminal === '') jsonError('Falta terminal_serie', 400);
-    if (strlen($terminal) > 120) {
-        $terminal = substr($terminal, 0, 120);
-    }
-    return $terminal;
-}
-
 // ── Traspasar mesa completa a otra ────────────────────────────
 function endpointMesaTraspasar(array $payload, int $idPedido): void {
     requireRole($payload, ['admin', 'supervisor']);
     $body = getBody();
     $idMesaDestino = (int)($body['id_mesa_destino'] ?? 0);
     if ($idMesaDestino <= 0) jsonError('Mesa destino inválida', 400);
+    $terminalSerie = terminalSerieDesdeBody($body);
 
     $db = getDB();
     $db->beginTransaction();
@@ -206,10 +211,14 @@ function endpointMesaTraspasar(array $payload, int $idPedido): void {
             jsonError('La mesa de origen no tiene líneas para traspasar', 400);
         }
 
-        // Obtener o crear el pedido de la mesa destino
-        $stDest = $db->prepare('SELECT id_pedido FROM pedido_cabecera WHERE id_mesa = ? LIMIT 1');
+        // Obtener o crear el pedido de la mesa destino (bloquear fila si ya existe)
+        $stDest = $db->prepare(
+            'SELECT id_pedido FROM pedido_cabecera WHERE id_mesa = ? LIMIT 1 FOR UPDATE'
+        );
         $stDest->execute([$idMesaDestino]);
         $destRow = $stDest->fetch();
+
+        verificarMesaDestinoNoBloqueadaPorOtro($db, $idMesaDestino, $terminalSerie, true);
 
         if ($destRow) {
             $idPedidoDestino = (int)$destRow['id_pedido'];
@@ -284,4 +293,136 @@ function endpointMesaTraspasar(array $payload, int $idPedido): void {
         logEvent('Error traspasar mesa ' . $idPedido . ': ' . $e->getMessage(), 'error');
         jsonError('Error interno: ' . $e->getMessage(), 500);
     }
+}
+
+// ── Movimientos de una mesa (solo admin) ──────────────────────
+function endpointMesaMovimientos(array $payload, int $idPedido): void {
+    requireRole($payload, ['admin']);
+
+    $db = getDB();
+    $st = $db->prepare('SELECT id_mesa FROM pedido_cabecera WHERE id_pedido = ? LIMIT 1');
+    $st->execute([$idPedido]);
+    $cab = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$cab) {
+        jsonError('Mesa no encontrada', 404);
+    }
+    $idMesa = (int)$cab['id_mesa'];
+
+    $st = $db->prepare(
+        'SELECT r.id_linea, r.fecha_hora, r.id_usuario, r.tipo_accion, r.json_cambio,
+                u.nombre_usuario
+           FROM registro_cambios r
+           LEFT JOIN usuarios u ON u.id_usuario = r.id_usuario
+          WHERE (
+                (r.tipo_accion IN (\'añadir\', \'borrar\', \'nota_libre\')
+                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(r.json_cambio, \'$.id_pedido\')) AS UNSIGNED) = ?)
+             OR (r.tipo_accion = \'cambio_mesa\'
+                 AND (
+                      CAST(JSON_UNQUOTE(JSON_EXTRACT(r.json_cambio, \'$.mesa_origen\')) AS UNSIGNED) = ?
+                   OR CAST(JSON_UNQUOTE(JSON_EXTRACT(r.json_cambio, \'$.mesa_dest\')) AS UNSIGNED) = ?
+                 ))
+             OR (r.tipo_accion = \'traspaso_mesa\'
+                 AND (
+                      CAST(JSON_UNQUOTE(JSON_EXTRACT(r.json_cambio, \'$.mesa_origen\')) AS UNSIGNED) = ?
+                   OR CAST(JSON_UNQUOTE(JSON_EXTRACT(r.json_cambio, \'$.mesa_destino\')) AS UNSIGNED) = ?
+                 ))
+          )
+          ORDER BY r.fecha_hora DESC
+          LIMIT 500'
+    );
+    $st->execute([$idPedido, $idMesa, $idMesa, $idMesa, $idMesa]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    $stDet = $db->prepare(
+        'SELECT nombre_producto_pantalla, cantidad FROM pedido_detalles WHERE id_linea = ?'
+    );
+
+    $nuevos = [];
+    $eliminados = [];
+    $enviados = [];
+    $recibidos = [];
+
+    foreach ($rows as $r) {
+        $data = json_decode((string)$r['json_cambio'], true);
+        if (!is_array($data)) {
+            $data = [];
+        }
+        $item = _movimientoItemDesdeRegistro($r, $data, $stDet);
+        $tipo = (string)$r['tipo_accion'];
+
+        if ($tipo === 'añadir' || $tipo === 'nota_libre') {
+            $nuevos[] = $item;
+            continue;
+        }
+        if ($tipo === 'borrar') {
+            $eliminados[] = $item;
+            continue;
+        }
+        if ($tipo === 'cambio_mesa') {
+            $origen = (int)($data['mesa_origen'] ?? 0);
+            $dest = (int)($data['mesa_dest'] ?? 0);
+            if ($origen === $idMesa) {
+                $enviados[] = $item;
+            }
+            if ($dest === $idMesa) {
+                $recibidos[] = $item;
+            }
+            continue;
+        }
+        if ($tipo === 'traspaso_mesa') {
+            $origen = (int)($data['mesa_origen'] ?? 0);
+            $dest = (int)($data['mesa_destino'] ?? 0);
+            $num = (int)($data['num_lineas'] ?? 0);
+            $item['producto'] = $num > 0
+                ? "Traspaso completo ($num líneas)"
+                : 'Traspaso completo';
+            $item['cantidad'] = $num > 0 ? $num : 1;
+            if ($origen === $idMesa) {
+                $item['mesa_destino'] = $dest;
+                $enviados[] = $item;
+            }
+            if ($dest === $idMesa) {
+                $item['mesa_origen'] = $origen;
+                $recibidos[] = $item;
+            }
+        }
+    }
+
+    jsonOk([
+        'id_mesa'    => $idMesa,
+        'id_pedido'  => $idPedido,
+        'nuevos'     => $nuevos,
+        'eliminados' => $eliminados,
+        'enviados'   => $enviados,
+        'recibidos'  => $recibidos,
+    ]);
+}
+
+/** @param array<string, mixed> $row @param array<string, mixed> $data */
+function _movimientoItemDesdeRegistro(array $row, array $data, PDOStatement $stDet): array {
+    $producto = trim((string)($data['producto'] ?? $data['texto'] ?? ''));
+    $cantidad = (int)($data['cantidad'] ?? 1);
+    if ($producto === '' && !empty($data['id_linea'])) {
+        $stDet->execute([(int)$data['id_linea']]);
+        $det = $stDet->fetch(PDO::FETCH_ASSOC);
+        if ($det) {
+            $producto = trim((string)($det['nombre_producto_pantalla'] ?? ''));
+            if ($cantidad <= 0) {
+                $cantidad = (int)($det['cantidad'] ?? 1);
+            }
+        }
+    }
+    if ($producto === '') {
+        $producto = '—';
+    }
+
+    return [
+        'fecha_hora'   => (string)$row['fecha_hora'],
+        'usuario'      => trim((string)($row['nombre_usuario'] ?? '')),
+        'producto'     => $producto,
+        'cantidad'     => max(1, $cantidad),
+        'mesa_origen'  => isset($data['mesa_origen']) ? (int)$data['mesa_origen'] : null,
+        'mesa_destino' => isset($data['mesa_dest']) ? (int)$data['mesa_dest']
+            : (isset($data['mesa_destino']) ? (int)$data['mesa_destino'] : null),
+    ];
 }

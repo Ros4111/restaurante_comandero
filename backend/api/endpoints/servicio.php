@@ -50,68 +50,6 @@ function _impresoraIdsParaPermiso(PDO $db, string $rol): ?array {
     return $ids !== [] ? $ids : [-1];
 }
 
-/**
- * Predeterminado del catálogo por grupo vs. opción elegida en el pedido.
- * @param array<int|string, mixed> $opciones
- * @return array<int, string>
- */
-function _predeterminadosProducto(PDO $db, int $idProducto): array {
-    static $cache = [];
-    if (isset($cache[$idProducto])) {
-        return $cache[$idProducto];
-    }
-    $st = $db->prepare(
-        'SELECT id_grupo_opciones, nombre_opcion, predeterminado
-           FROM productos_opciones
-          WHERE id_producto = ? AND disponible = 1
-          ORDER BY id_grupo_opciones, orden'
-    );
-    $st->execute([$idProducto]);
-    $pred = [];
-    $first = [];
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $g = (int)$row['id_grupo_opciones'];
-        $nombre = trim((string)$row['nombre_opcion']);
-        if ($nombre === '') {
-            continue;
-        }
-        if (!isset($first[$g])) {
-            $first[$g] = $nombre;
-        }
-        if ((int)$row['predeterminado'] === 1) {
-            $pred[$g] = $nombre;
-        }
-    }
-    foreach ($first as $g => $nombre) {
-        if (!isset($pred[$g])) {
-            $pred[$g] = $nombre;
-        }
-    }
-    $cache[$idProducto] = $pred;
-    return $pred;
-}
-
-/** @param array<int|string, mixed> $opciones */
-function _opcionesNoPredeterminadas(PDO $db, int $idProducto, array $opciones): array {
-    $pred = _predeterminadosProducto($db, $idProducto);
-    $out = [];
-    foreach ($opciones as $idGrupo => $opcion) {
-        if (!is_array($opcion)) {
-            continue;
-        }
-        $g = (int)$idGrupo;
-        $nombre = trim((string)($opcion['nombre'] ?? ''));
-        if ($nombre === '') {
-            continue;
-        }
-        $def = $pred[$g] ?? null;
-        if ($def === null || $def !== $nombre) {
-            $out[] = $nombre;
-        }
-    }
-    return $out;
-}
-
 /** JSON estable de opciones para comparar líneas equivalentes. */
 function _opcionesCanonical(array $opciones): array {
     if ($opciones === []) {
@@ -155,6 +93,7 @@ function _agruparLineasPendientes(array $lineas): array {
         );
         $idLinea = (int)$linea['id_linea'];
         $cant = (int)$linea['cantidad'];
+        $esModificado = !empty($linea['modificado']);
         if (!isset($grupos[$key])) {
             $grupos[$key] = [
                 'id_linea'                 => $idLinea,
@@ -164,11 +103,13 @@ function _agruparLineasPendientes(array $lineas): array {
                 'comentario'               => (string)$linea['comentario'],
                 'nombre_producto_pantalla' => (string)$linea['nombre_producto_pantalla'],
                 'opciones_elegidas'        => $opciones,
-                'opciones_no_pred'         => $linea['opciones_no_pred'],
+                'modificado'               => $esModificado,
             ];
         } else {
             $grupos[$key]['ids_linea'][] = $idLinea;
             $grupos[$key]['cantidad'] += $cant;
+            $grupos[$key]['modificado'] =
+                ($grupos[$key]['modificado'] ?? false) || $esModificado;
         }
     }
     return array_values($grupos);
@@ -182,6 +123,7 @@ function endpointServicioPendientes(array $payload): void {
 
     $sql = 'SELECT d.id_linea, d.id_pedido, d.id_producto, d.cantidad, d.comentario,
                    d.nombre_producto_pantalla, d.opciones_elegidas, d.orden, d.hora_pedido,
+                   COALESCE(d.modificado_servicio, 0) AS modificado_servicio,
                    c.id_mesa, COALESCE(c.nombre_cliente, \'\') AS nombre_cliente,
                    p.id_impresora
               FROM pedido_detalles d
@@ -233,7 +175,7 @@ function endpointServicioPendientes(array $payload): void {
             'comentario'               => (string)$r['comentario'],
             'nombre_producto_pantalla' => (string)$r['nombre_producto_pantalla'],
             'opciones_elegidas'        => $opciones,
-            'opciones_no_pred'         => _opcionesNoPredeterminadas($db, $idProducto, $opciones),
+            'modificado'               => (int)$r['modificado_servicio'] === 1,
         ];
     }
 
@@ -271,7 +213,7 @@ function endpointServicioMarcarServido(array $payload): void {
     $placeholders = implode(',', array_fill(0, count($idsLinea), '?'));
     $sql = "UPDATE pedido_detalles d
                INNER JOIN productos p ON p.id_producto = d.id_producto
-               SET d.servido = NOW()
+               SET d.servido = NOW(), d.modificado_servicio = 0
              WHERE d.servido = ?
                AND d.id_linea IN ($placeholders)";
     $params = array_merge([SERVIDO_PENDIENTE], $idsLinea);
