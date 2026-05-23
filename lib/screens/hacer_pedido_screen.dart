@@ -59,6 +59,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   bool _bloqueoPerdido = false;
   /// Solo desbloquear en servidor al pulsar Salir (no en dispose).
   bool _salidaExplicita = false;
+  /// Marca la primera pulsacion de la flecha atras en el nivel raiz del catalogo.
+  DateTime? _primeraPresionFlechaAtras;
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
@@ -195,6 +197,71 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     if (_bloqueoPerdido || !tengoBloqueo) {
       mesaPv.forzarSoloLectura(bloqueador: bloqueador);
     }
+  }
+
+  void _onFlechaAtrasPressed() {
+    final mesaPv = context.read<MesaProvider>();
+
+    // En modo solo lectura, salir directamente.
+    if (mesaPv.soloLectura || _bloqueoPerdido) {
+      _salirMesa();
+      return;
+    }
+
+    // Si estamos en una subcategoria, subir un nivel.
+    final subioPorCategoria =
+        _catalogoKey.currentState?.volverCategoriaSuperior() ?? false;
+    if (subioPorCategoria) {
+      _primeraPresionFlechaAtras = null;
+      return;
+    }
+
+    // Nivel raiz: logica de doble pulsacion.
+    final ahora = DateTime.now();
+    if (_primeraPresionFlechaAtras != null &&
+        ahora.difference(_primeraPresionFlechaAtras!).inSeconds < 3) {
+      _primeraPresionFlechaAtras = null;
+      if (mesaPv.hayCambiosSinGuardar) {
+        _confirmarSalirSinGuardar();
+      } else {
+        _salirMesa();
+      }
+    } else {
+      _primeraPresionFlechaAtras = ahora;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Pulsa de nuevo para salir'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+    }
+  }
+
+  Future<void> _confirmarSalirSinGuardar() async {
+    final salir = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: const Text('Salir sin guardar?'),
+        content: const Text(
+            'Hay cambios sin guardar. Si sales ahora se perderan.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange),
+            child: const Text('Salir sin guardar'),
+          ),
+        ],
+      ),
+    );
+    if (salir == true) _salirMesa();
   }
 
   Future<void> _salirMesa({String? aviso}) async {
@@ -836,11 +903,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           titleSpacing: 4,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, size: 22),
-            tooltip: 'Salir de la mesa',
+            tooltip: 'Volver / Salir',
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onPressed: () => _salirMesa(),
+            onPressed: _onFlechaAtrasPressed,
           ),
           automaticallyImplyLeading: false,
           title: Row(
