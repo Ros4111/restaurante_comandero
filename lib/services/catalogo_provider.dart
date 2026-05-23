@@ -174,6 +174,10 @@ class MesaProvider extends ChangeNotifier {
 
   bool get tieneNuevas => lineas.any((l) => l.esNuevo);
 
+  bool get hayCambiosSinGuardar =>
+      _lineasBorradas.isNotEmpty ||
+      lineas.any((l) => l.esNuevo || l.editada || l.moverAMesa != null);
+
   void cargar(int pedido, int mesa, Map<String, dynamic> data,
       {required bool tengoBloqueo, String? bloqueador}) {
     idPedido = pedido;
