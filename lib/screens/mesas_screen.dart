@@ -9,6 +9,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/catalogo_provider.dart';
 import '../services/sunmi_service.dart';
+import '../utils/mesa_bloqueo.dart';
 import '../utils/theme.dart';
 import 'hacer_pedido_screen.dart';
 import 'login_screen.dart';
@@ -65,15 +66,20 @@ class _MesasScreenState extends State<MesasScreen> {
           now.year, now.month, now.day, now.hour, now.minute, now.second);
 
       final lista = mesas.map((m) {
-        final bloqueoVigente = _bloqueoVigente(m.horaBloqueo, ahora) &&
-            (m.terminalSerieBloqueo ?? '').isNotEmpty;
-        final terminalBloqueo = bloqueoVigente ? m.terminalSerieBloqueo : null;
+        final bloqueoVigente = m.bloqueoVigente ||
+            (_bloqueoVigente(m.horaBloqueo, ahora) &&
+                (m.terminalSerieBloqueo ?? '').isNotEmpty);
+        final porMi = m.bloqueadaPorMi ||
+            (bloqueoVigente &&
+                (m.terminalSerieBloqueo ?? '').trim() ==
+                    (_terminalSerie ?? '').trim());
+        final terminalBloqueo = porMi ? m.terminalSerieBloqueo : null;
         return MesaResumen(
           idPedido: m.idPedido,
           idMesa: m.idMesa,
           estado: m.estado,
           idUsuarioBloqueo: m.idUsuarioBloqueo,
-          nombreUsuarioBloqueo: bloqueoVigente
+          nombreUsuarioBloqueo: bloqueoVigente && porMi
               ? (sesion.nombreUsuario(m.idUsuarioBloqueo) ??
                   m.nombreUsuarioBloqueo)
               : null,
@@ -84,6 +90,8 @@ class _MesasScreenState extends State<MesasScreen> {
           horaUltimaAccion: m.horaUltimaAccion,
           totalLineas: m.totalLineas,
           totalImporte: m.totalImporte,
+          bloqueoVigente: bloqueoVigente,
+          bloqueadaPorMi: porMi,
         );
       }).toList();
 
@@ -164,6 +172,7 @@ class _MesasScreenState extends State<MesasScreen> {
 
     try {
       final idPedido = await api.abrirMesa(num);
+      await api.bloquearMesa(idPedido);
       _navPedido(idPedido, num, bloqueadoPorMi: true);
     } on ApiException catch (e) {
       if (mounted) setState(() => _fabVisible = true);
@@ -180,13 +189,12 @@ class _MesasScreenState extends State<MesasScreen> {
       await api.bloquearMesa(mesa.idPedido);
       _navPedido(mesa.idPedido, mesa.idMesa, bloqueadoPorMi: true);
     } on ApiException catch (e) {
-      if (e.statusCode == 409 &&
-          e.message.contains('ya tiene abierta la mesa')) {
-        _showError(e.message);
-      } else if (e.statusCode == 409) {
-        // Mesa bloqueada por otro: entrar en solo lectura
-        _navPedido(mesa.idPedido, mesa.idMesa,
-            bloqueadoPorMi: false, bloqueador: mesa.nombreUsuarioBloqueo);
+      if (e.statusCode == 409) {
+        _navPedido(
+          mesa.idPedido,
+          mesa.idMesa,
+          bloqueadoPorMi: false,
+        );
       } else {
         _showError(e.message);
       }
@@ -220,12 +228,8 @@ class _MesasScreenState extends State<MesasScreen> {
   }
 
   /// Bloqueo vigente de otro terminal (no el de este dispositivo).
-  bool _mesaBloqueadaPorOtro(MesaResumen mesa) {
-    final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
-    if (serieBloqueo.isEmpty) return false;
-    final yo = (_terminalSerie ?? '').trim();
-    return yo.isEmpty || serieBloqueo != yo;
-  }
+  bool _mesaBloqueadaPorOtro(MesaResumen mesa) =>
+      mesa.bloqueoVigente && !mesa.bloqueadaPorMi;
 
   // ── Menú largo pulsado sobre una mesa ──────────────────────
 
@@ -281,7 +285,7 @@ class _MesasScreenState extends State<MesasScreen> {
                       const Icon(Icons.lock, color: Colors.orange, size: 14),
                       const SizedBox(width: 4),
                       Text(
-                        'Bloqueada por $nombreBloqueador',
+                        kMesaBloqueadaSoloVer,
                         style: const TextStyle(
                             color: Colors.orange, fontSize: 13),
                       ),
@@ -828,11 +832,8 @@ class _MesaTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final diaCreacion = _diaCalendarioDesdeHoraCreacion(mesa.horaCreacion);
-    final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
     final nombreCliente = (mesa.nombreCliente ?? '').trim();
-    final yo = (terminalSerieActual ?? '').trim();
-    final bloqueadaPorOtro =
-        serieBloqueo.isNotEmpty && (yo.isEmpty || serieBloqueo != yo);
+    final bloqueadaPorOtro = mesa.bloqueoVigente && !mesa.bloqueadaPorMi;
 
     return GestureDetector(
       onTap: onTap,
@@ -873,7 +874,7 @@ class _MesaTile extends StatelessWidget {
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Icon(Icons.lock, color: Colors.orange, size: 14),
                 const SizedBox(width: 4),
-                Text((mesa.nombreUsuarioBloqueo ?? serieBloqueo),
+                Text(kMesaBloqueadaSoloVer,
                     style: const TextStyle(color: Colors.orange, fontSize: 12)),
               ]),
             ],

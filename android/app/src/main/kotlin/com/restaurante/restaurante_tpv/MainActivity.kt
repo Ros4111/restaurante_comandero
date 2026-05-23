@@ -16,6 +16,16 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
+            DEVICE_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDeviceSerial" -> result.success(readDeviceSerial())
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
             CHANNEL,
         ).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -93,6 +103,28 @@ class MainActivity : FlutterActivity() {
     }
 
     @Suppress("DEPRECATION")
+    private fun readDeviceSerial(): String? {
+        return try {
+            val serial =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Build.getSerial()
+                } else {
+                    Build.SERIAL
+                }
+            val trimmed = serial.trim()
+            if (trimmed.isEmpty() || trimmed.equals("unknown", ignoreCase = true)) {
+                null
+            } else {
+                trimmed
+            }
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    @Suppress("DEPRECATION")
     private fun isInLockTaskModeCompat(): Boolean {
         val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -104,5 +136,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "com.restaurante.restaurante_tpv/kiosk"
+        private const val DEVICE_CHANNEL = "com.restaurante.restaurante_tpv/device"
     }
 }

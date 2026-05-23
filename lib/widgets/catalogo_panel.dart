@@ -22,6 +22,9 @@ class CatalogoPanel extends StatefulWidget {
   /// Texto a buscar (sin el prefijo `mm` si correspondía).
   final String terminoBusqueda;
 
+  /// Nota / artículo libre (solo en la raíz del catálogo).
+  final VoidCallback? onManual;
+
   const CatalogoPanel({
     super.key,
     required this.onTap,
@@ -29,6 +32,7 @@ class CatalogoPanel extends StatefulWidget {
     this.busquedaActiva = false,
     this.modoCampoFiltro = false,
     this.terminoBusqueda = '',
+    this.onManual,
   });
 
   @override
@@ -75,9 +79,7 @@ class CatalogoPanelState extends State<CatalogoPanel> {
     final hayAtras = !modoBusqueda && _stack.length > 1;
 
     String? etiquetaCabecera;
-    if (!modoBusqueda && !hayAtras) {
-      etiquetaCabecera = 'Menú';
-    } else if (modoBusqueda) {
+    if (modoBusqueda) {
       if (widget.modoCampoFiltro && widget.terminoBusqueda.trim().isEmpty) {
         etiquetaCabecera = 'Filtrar campo clave (añade texto tras mm)';
       } else {
@@ -85,52 +87,56 @@ class CatalogoPanelState extends State<CatalogoPanel> {
       }
     }
 
+    final showHeader = hayAtras || modoBusqueda;
+    final showManual =
+        !modoBusqueda && !hayAtras && widget.onManual != null;
+
     return Column(
       children: [
-        // Cabecera con ruta actual
-        Container(
-          color: AppTheme.colorSuperficie,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            children: [
-              if (hayAtras)
-                TextButton(
-                  onPressed: volverCategoriaSuperior,
-                  style: TextButton.styleFrom(
-                    foregroundColor: _colorTextoCategoria,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    '<- ${_stack.last?.nombre ?? ''}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: _colorTextoCategoria,
+        if (showHeader)
+          Container(
+            color: AppTheme.colorSuperficie,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                if (hayAtras)
+                  TextButton(
+                    onPressed: volverCategoriaSuperior,
+                    style: TextButton.styleFrom(
+                      foregroundColor: _colorTextoCategoria,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              if (!hayAtras)
-                Expanded(
-                  child: Text(
-                    etiquetaCabecera ?? 'Menú',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: _colorTextoCategoria,
+                    child: Text(
+                      '<- ${_stack.last?.nombre ?? ''}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _colorTextoCategoria,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-            ],
+                if (modoBusqueda)
+                  Expanded(
+                    child: Text(
+                      etiquetaCabecera ?? '',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: _colorTextoCategoria,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.zero, // SIN padding exterior
+            padding: EdgeInsets.zero,
             children: [
               if (modoBusqueda && prods.isEmpty)
                 Padding(
@@ -166,6 +172,13 @@ class CatalogoPanelState extends State<CatalogoPanel> {
                           : AppTheme.colorSuperficie,
                     ),
                   ),
+              if (showManual)
+                _ManualTile(
+                  onTap: widget.onManual!,
+                  backgroundColor: (subcats.length + prods.length).isEven
+                      ? AppTheme.colorTarjeta
+                      : AppTheme.colorSuperficie,
+                ),
             ],
           ),
         ),
@@ -200,6 +213,41 @@ class _CatTile extends StatelessWidget {
           cat.nombre,
           style: const TextStyle(
             color: _colorTextoCategoria,
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualTile extends StatelessWidget {
+  final VoidCallback onTap;
+  final Color backgroundColor;
+
+  const _ManualTile({
+    required this.onTap,
+    required this.backgroundColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          border: const Border(
+            bottom: BorderSide(color: Colors.black26, width: 1),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        child: const Text(
+          'Manualmente',
+          style: TextStyle(
+            color: Colors.white,
             fontSize: 17,
             fontWeight: FontWeight.bold,
           ),

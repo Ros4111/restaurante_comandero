@@ -6,7 +6,9 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 
 class ApiException implements Exception {
@@ -18,6 +20,9 @@ class ApiException implements Exception {
 }
 
 class ApiService extends ChangeNotifier {
+  static const _deviceChannel =
+      MethodChannel('com.restaurante.restaurante_tpv/device');
+
   String _baseUrl = '';
   String? _token;
   bool _serverReachable = true;
@@ -66,20 +71,40 @@ class ApiService extends ChangeNotifier {
   String _passwordHash(String nombreUsuario, String password) =>
       _sha256('${nombreUsuario.trim()}$password');
 
+  /// Serie de hardware (Build.getSerial / Build.SERIAL), como antes con device_info_plus.
+  Future<String?> _androidHardwareSerial() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      final raw =
+          await _deviceChannel.invokeMethod<String>('getDeviceSerial');
+      final t = raw?.trim() ?? '';
+      if (t.isNotEmpty && t.toLowerCase() != 'unknown') return t;
+    } catch (_) {}
+    return null;
+  }
+
   Future<String> terminalSerie() async {
     if (_terminalSerieCache != null && _terminalSerieCache!.isNotEmpty) {
       return _terminalSerieCache!;
     }
     if (kIsWeb || !Platform.isAndroid) {
-      _terminalSerieCache = 'terminal-no-android';
+      final prefs = await SharedPreferences.getInstance();
+      var local = prefs.getString('terminal_serie_local')?.trim() ?? '';
+      if (local.isEmpty) {
+        local =
+            'desk-${DateTime.now().millisecondsSinceEpoch}-${identityHashCode(this)}';
+        if (local.length > 120) local = local.substring(0, 120);
+        await prefs.setString('terminal_serie_local', local);
+      }
+      _terminalSerieCache = local;
       return _terminalSerieCache!;
     }
     try {
       final info = await DeviceInfoPlugin().androidInfo;
       final candidates = <String?>[
+        await _androidHardwareSerial(),
         info.id,
         info.fingerprint,
-        info.hardware,
         '${info.manufacturer}-${info.model}',
       ];
       final raw = candidates.firstWhere(
@@ -532,7 +557,8 @@ class ApiService extends ChangeNotifier {
 
   // ── Mesas ──────────────────────────────────────────────────
   Future<List<MesaResumen>> getMesas() async {
-    final list = await _requestList('/mesas');
+    final terminal = Uri.encodeComponent(await terminalSerie());
+    final list = await _requestList('/mesas?terminal_serie=$terminal');
     return list
         .map((j) => MesaResumen.fromJson(j as Map<String, dynamic>))
         .toList();
@@ -590,19 +616,26 @@ class ApiService extends ChangeNotifier {
 
   // ── Pedidos ────────────────────────────────────────────────
   Future<Map<String, dynamic>> getPedido(int idPedido) async {
-    return await _request('GET', '/pedidos/$idPedido');
+    final terminal = Uri.encodeComponent(await terminalSerie());
+    return await _request('GET', '/pedidos/$idPedido?terminal_serie=$terminal');
   }
 
   Future<void> guardarPedido(
     int idPedido,
     List<LineaPedido> lineas, {
     required String nombreCliente,
+    String? horaUltimaAccionRef,
   }) async {
-    await _request('POST', '/pedidos/$idPedido/guardar', body: {
+    final body = <String, dynamic>{
       'lineas': lineas.map((l) => l.toJsonParaGuardarPedido()).toList(),
       'terminal_serie': await terminalSerie(),
       'nombre_cliente': nombreCliente.trim(),
-    });
+    };
+    final ref = horaUltimaAccionRef?.trim();
+    if (ref != null && ref.isNotEmpty) {
+      body['hora_ultima_accion_ref'] = ref;
+    }
+    await _request('POST', '/pedidos/$idPedido/guardar', body: body);
   }
 
   Future<int> crearNotaLibre({

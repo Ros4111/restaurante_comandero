@@ -164,6 +164,8 @@ class MesaProvider extends ChangeNotifier {
   bool soloLectura = false;
   String? nombreBloqueador;
   String nombreCliente = '';
+  /// Copia de `hora_ultima_accion` del servidor al cargar (control de concurrencia).
+  String? horaUltimaAccionRef;
   List<LineaPedido> lineas = [];
   List<LineaPedido> _lineasOriginales = [];
 
@@ -183,6 +185,9 @@ class MesaProvider extends ChangeNotifier {
     nombreCliente = (cabecera is Map && cabecera['nombre_cliente'] != null)
         ? cabecera['nombre_cliente'].toString()
         : '';
+    horaUltimaAccionRef = (cabecera is Map)
+        ? cabecera['hora_ultima_accion']?.toString()
+        : null;
     _lineasBorradas.clear();
 
     final lista = (data['detalles'] as List? ?? [])
@@ -245,6 +250,13 @@ class MesaProvider extends ChangeNotifier {
     return lineas;
   }
 
+  void forzarSoloLectura({String? bloqueador}) {
+    bloqueadoPorMi = false;
+    soloLectura = true;
+    nombreBloqueador = bloqueador;
+    notifyListeners();
+  }
+
   void reset() {
     idPedido = null;
     idMesa = null;
@@ -252,6 +264,7 @@ class MesaProvider extends ChangeNotifier {
     soloLectura = false;
     nombreBloqueador = null;
     nombreCliente = '';
+    horaUltimaAccionRef = null;
     lineas.clear();
     _lineasOriginales.clear();
     _lineasBorradas.clear();

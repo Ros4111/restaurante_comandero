@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/cashlogy_service.dart';
 import '../services/catalogo_provider.dart';
+import '../utils/mesa_bloqueo.dart';
 import '../utils/precio_redondeo.dart';
 import '../utils/theme.dart';
 import '../widgets/catalogo_panel.dart';
@@ -54,6 +55,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   bool _offline = false;
   bool _cargandoPedido = true;
   bool _pantallaLista = false;
+  /// Bloqueo expirado (3 min) u otro terminal con la mesa.
+  bool _bloqueoPerdido = false;
+  /// Solo desbloquear en servidor al pulsar Salir (no en dispose).
+  bool _salidaExplicita = false;
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
@@ -64,17 +69,33 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     super.initState();
     _api = context.read<ApiService>();
     _clienteCtrl.clear();
-    _cargarPedido();
+    _inicializarSesionMesa();
+  }
+
+  Future<void> _inicializarSesionMesa() async {
     if (widget.bloqueadoPorMi) {
-      // Ping cada 60s para mantener bloqueo
-      _pingTimer = Timer.periodic(const Duration(seconds: 60), (_) => _ping());
+      _bloqueoPerdido = false;
+      // El bloqueo ya se hizo en mesas_screen; aquí solo renovamos el ping.
+      try {
+        await _ping(soloRenovar: true);
+      } on ApiException catch (_) {
+        try {
+          await _api.bloquearMesa(widget.idPedido);
+          await _ping(soloRenovar: true);
+        } catch (_) {
+          // No pasar a solo lectura al entrar: confiar en el bloqueo de mesas_screen.
+        }
+      } catch (_) {}
+      _pingTimer =
+          Timer.periodic(const Duration(seconds: 60), (_) => _ping());
     }
+    await _cargarPedido();
   }
 
   @override
   void dispose() {
     _pingTimer?.cancel();
-    if (widget.bloqueadoPorMi) {
+    if (widget.bloqueadoPorMi && _salidaExplicita) {
       _api.desbloquearMesa(widget.idPedido).ignore();
     }
     _clienteCtrl.dispose();
@@ -88,14 +109,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     if (mounted) setState(() => _cargandoPedido = true);
 
     try {
+      final miTerminal = await api.terminalSerie();
       final data = await api.getPedido(widget.idPedido);
-      mesaPv.cargar(
-        widget.idPedido,
-        widget.idMesa,
-        data,
-        tengoBloqueo: widget.bloqueadoPorMi,
-        bloqueador: widget.bloqueador,
-      );
+      _aplicarDatosPedido(data, mesaPv, miTerminal: miTerminal);
       if (_clienteCtrl.text != mesaPv.nombreCliente) {
         _clienteCtrl.text = mesaPv.nombreCliente;
       }
@@ -104,24 +120,143 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         _cargandoPedido = false;
         _pantallaLista = true;
       });
+    } on ApiException catch (e) {
+      if (_esMesaNoEncontrada(e)) {
+        if (mounted) _salirPorMesaNoEncontrada(e.message);
+        return;
+      }
+      setState(() {
+        _offline = true;
+        _cargandoPedido = false;
+        _pantallaLista = true;
+      });
+      Future.delayed(const Duration(seconds: 5), _cargarPedido);
     } catch (_) {
       setState(() {
         _offline = true;
         _cargandoPedido = false;
         _pantallaLista = true;
       });
-      // modo offline: esperar y reintentar
       Future.delayed(const Duration(seconds: 5), _cargarPedido);
     }
   }
 
-  Future<void> _ping() async {
+  bool _esMesaNoEncontrada(ApiException e) =>
+      e.statusCode == 404 &&
+      e.message.toLowerCase().contains('mesa no encontrada');
+
+  bool _puedeEditar(MesaProvider mesaPv) =>
+      mesaPv.bloqueadoPorMi && !mesaPv.soloLectura && !_bloqueoPerdido;
+
+  void _aplicarDatosPedido(
+    Map<String, dynamic> data,
+    MesaProvider mesaPv, {
+    required String miTerminal,
+  }) {
+    String? bloqueador = widget.bloqueador;
+    // Si entramos con bloqueo concedido en mesas_screen, editar por defecto.
+    var tengoBloqueo = widget.bloqueadoPorMi;
+    _bloqueoPerdido = false;
+
+    final bloqueo = data['bloqueo'];
+    if (bloqueo is Map) {
+      final vigente = bloqueo['vigente'] == true;
+      final tengo = bloqueo['tengo_bloqueo'] == true;
+
+      if (widget.bloqueadoPorMi) {
+        if (vigente && !tengo) {
+          tengoBloqueo = false;
+          _bloqueoPerdido = true;
+        } else if (vigente && tengo) {
+          tengoBloqueo = true;
+        } else {
+          tengoBloqueo = true;
+        }
+      } else {
+        tengoBloqueo = false;
+      }
+    } else if (!widget.bloqueadoPorMi) {
+      tengoBloqueo = false;
+    }
+
+    if (!widget.bloqueadoPorMi) {
+      tengoBloqueo = false;
+      bloqueador = null;
+      _bloqueoPerdido = false;
+    }
+
+    mesaPv.cargar(
+      widget.idPedido,
+      widget.idMesa,
+      data,
+      tengoBloqueo: tengoBloqueo,
+      bloqueador: bloqueador,
+    );
+    if (_bloqueoPerdido || !tengoBloqueo) {
+      mesaPv.forzarSoloLectura(bloqueador: bloqueador);
+    }
+  }
+
+  Future<void> _salirMesa({String? aviso}) async {
+    _salidaExplicita = true;
+    _pingTimer?.cancel();
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (widget.bloqueadoPorMi && !_bloqueoPerdido) {
+      try {
+        await _api.desbloquearMesa(widget.idPedido);
+      } catch (_) {}
+    }
+    if (mounted) context.read<MesaProvider>().reset();
+    if (!mounted) return;
+    Navigator.pop(context);
+    if (aviso != null && messenger != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(aviso),
+          backgroundColor: Colors.orange[900],
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  void _salirPorMesaNoEncontrada(String mensaje) {
+    _salirMesa(
+      aviso: mensaje.isNotEmpty
+          ? mensaje
+          : 'La mesa ya no está activa (cerrada o cobrada).',
+    );
+  }
+
+  Future<void> _marcarBloqueoPerdido({String? mensaje}) async {
+    if (!mounted) return;
+    setState(() => _bloqueoPerdido = true);
+    context
+        .read<MesaProvider>()
+        .forzarSoloLectura(bloqueador: 'Otro usuario / sesión expirada');
+    await _cargarPedido();
+    if (mensaje != null && mensaje.isNotEmpty) {
+      _showError(mensaje);
+    }
+  }
+
+  Future<void> _ping({bool soloRenovar = false}) async {
     final api = context.read<ApiService>();
     try {
       await api.pingMesa(widget.idPedido);
       if (_offline) setState(() => _offline = false);
     } on ApiException catch (e) {
-      // Solo marcar offline cuando realmente parece un problema de red.
+      if (_esMesaNoEncontrada(e)) {
+        _salirPorMesaNoEncontrada(e.message);
+        return;
+      }
+      if (e.statusCode == 409 && !soloRenovar) {
+        await _marcarBloqueoPerdido(
+          mensaje:
+              'Ya no tienes esta mesa. Otro usuario puede haberla tomado o cobrado.',
+        );
+        return;
+      }
       if (e.statusCode == null) {
         setState(() => _offline = true);
       }
@@ -137,6 +272,15 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final mesaPv = context.read<MesaProvider>();
     final sesion = context.read<SesionProvider>();
 
+    if (!_puedeEditar(mesaPv)) {
+      _showError(
+        _bloqueoPerdido
+            ? 'No puedes guardar: la mesa la usa otro usuario o ya fue cobrada.'
+            : kMesaBloqueadaSoloVer,
+      );
+      return false;
+    }
+
     setState(() => _guardando = true);
 
     final lineasNuevas = mesaPv.lineas.where((l) => l.esNuevo).toList();
@@ -149,6 +293,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         widget.idPedido,
         mesaPv.lineasParaEnviar(),
         nombreCliente: mesaPv.nombreCliente,
+        horaUltimaAccionRef: mesaPv.horaUltimaAccionRef,
       );
 
       final impresoraPorProducto = <int, int>{
@@ -176,7 +321,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         );
       }
 
-      // Recargar para sincronizar estado con servidor
+      // Recargar y renovar bloqueo en servidor
+      if (mounted) setState(() => _bloqueoPerdido = false);
       await _cargarPedido();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -184,14 +330,16 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       }
       return true;
     } on ApiException catch (e) {
-      if (e.statusCode == 409) {
-        _showError('Bloqueo perdido: ${e.message}');
+      if (_esMesaNoEncontrada(e)) {
+        _salirPorMesaNoEncontrada(e.message);
+      } else if (e.statusCode == 409) {
+        await _marcarBloqueoPerdido(mensaje: e.message);
+        return false;
       } else if (e.statusCode == null) {
         setState(() => _offline = true);
         _showError('Sin conexión. Los cambios se guardarán al reconectar.');
         _scheduleRetryGuardar();
       } else {
-        // Error de servidor/API: no fingir "sin conexión".
         _showError(e.message);
       }
     } catch (e) {
@@ -237,7 +385,17 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   Future<void> _cerrarMesa() async {
+    final mesaPv = context.read<MesaProvider>();
+    if (!_puedeEditar(mesaPv)) {
+      _showError(
+        _bloqueoPerdido
+            ? 'No puedes cobrar/cerrar: usa Salir y vuelve a entrar si la mesa sigue abierta.'
+            : kMesaBloqueadaSoloVer,
+      );
+      return;
+    }
     final api = context.read<ApiService>();
+    final cashlogyOn = await CashlogyService.isEnabled();
     final confirmCtrl = TextEditingController();
 
     final ok = await showDialog<bool>(
@@ -254,8 +412,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}. '
-                  'Después se cobrará el total en Cashlogy antes de cerrar en el servidor.',
+                  cashlogyOn
+                      ? 'Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}. '
+                          'Después se cobrará el total en Cashlogy antes de cerrar en el servidor.'
+                      : 'Escribe "Cerrar" para confirmar el cierre de la mesa ${widget.idMesa}.',
                 ),
                 const SizedBox(height: 10),
                 TextField(
@@ -292,16 +452,26 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     if (!guardadoOk || !mounted) return;
 
     final catalogo = context.read<CatalogoProvider>();
-    final mesaPv = context.read<MesaProvider>();
     final totales = _calcularTotales(mesaPv.lineas, catalogo);
-    if (totales.total > 0) {
+    if (cashlogyOn && totales.total > 0) {
       final cobrado = await _cobrarEnCashlogy(totales.total);
       if (!cobrado || !mounted) return;
     }
 
     try {
       await api.cerrarMesa(widget.idPedido);
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        context.read<MesaProvider>().reset();
+        Navigator.pop(context);
+      }
+    } on ApiException catch (e) {
+      if (_esMesaNoEncontrada(e)) {
+        _salirPorMesaNoEncontrada(
+          'La mesa ya no está activa (posiblemente cerrada).',
+        );
+      } else {
+        _showError(e.message);
+      }
     } catch (e) {
       _showError(e.toString());
     }
@@ -648,24 +818,41 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final busq =
         interpretarCampoBusquedaCatalogoMm(_buscarCatalogoCtrl.text);
 
+    final puedeSalir = mesaPv.soloLectura || _bloqueoPerdido;
+
     return PopScope(
-      canPop: false,
+      canPop: puedeSalir,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _catalogoKey.currentState?.volverCategoriaSuperior();
+        if (didPop) return;
+        if (puedeSalir) {
+          _salirMesa();
+          return;
+        }
+        _catalogoKey.currentState?.volverCategoriaSuperior();
       },
       child: Scaffold(
         appBar: AppBar(
+          leadingWidth: 32,
+          titleSpacing: 4,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, size: 22),
+            tooltip: 'Salir de la mesa',
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => _salirMesa(),
+          ),
           automaticallyImplyLeading: false,
           title: Row(
             children: [
-              Text('Mesa ${widget.idMesa}'),
+              Text('${widget.idMesa}'),
               const SizedBox(width: 12),
               SizedBox(
                 width: 126,
                 height: 36,
                 child: TextField(
                   controller: _clienteCtrl,
-                  enabled: !mesaPv.soloLectura,
+                  enabled: _puedeEditar(mesaPv),
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   cursorColor: Colors.white,
                   textCapitalization: TextCapitalization.words,
@@ -691,13 +878,16 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
             ],
           ),
           actions: [
-            if (mesaPv.soloLectura)
+            if (mesaPv.soloLectura || _bloqueoPerdido)
               InkWell(
                 borderRadius: BorderRadius.circular(16),
-                onTap: () => Navigator.pop(context),
+                onTap: () => _salirMesa(),
                 child: Chip(
-                  label:
-                      Text('Solo lectura · ${mesaPv.nombreBloqueador ?? ''}'),
+                  label: Text(
+                    _bloqueoPerdido
+                        ? 'Sin edición · pulsa para salir'
+                        : kMesaBloqueadaSoloVer,
+                  ),
                   backgroundColor: Colors.orange[800],
                 ),
               )
@@ -707,7 +897,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                     ? null
                     : () async {
                         final guardadoOk = await _guardar();
-                        if (guardadoOk && mounted) Navigator.pop(this.context);
+                        if (guardadoOk && mounted) _salirMesa();
                       },
                 onLongPress: _guardando ? null : _guardarConDialogoImpresion,
                 icon: Icon(
@@ -736,26 +926,36 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 ),
             ],
           ],
-          bottom: _offline || !api.serverReachable
+          bottom: (_offline || !api.serverReachable)
               ? PreferredSize(
                   preferredSize: const Size.fromHeight(28),
-                  child: Container(
-                    color: Colors.red[900],
-                    width: double.infinity,
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.wifi_off, color: Colors.white, size: 14),
-                          SizedBox(width: 6),
-                          Text(
-                              'SERVIDOR INACCESIBLE — cambios pendientes de sincronizar',
-                              style: TextStyle(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_offline || !api.serverReachable)
+                        Container(
+                          color: Colors.red[900],
+                          width: double.infinity,
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.wifi_off,
+                                  color: Colors.white, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'SERVIDOR INACCESIBLE — cambios pendientes de sincronizar',
+                                style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 13,
-                                  fontWeight: FontWeight.bold)),
-                        ]),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
                 )
               : null,
@@ -773,7 +973,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                           flex: 1,
                           child: mesaPv.soloLectura
                               ? const Center(
-                                  child: Text('Modo solo lectura',
+                                  child: Text(kMesaBloqueadaSoloVer,
                                       style: TextStyle(
                                           color: AppTheme.colorTextoGris,
                                           fontSize: 18)))
@@ -790,15 +990,20 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 15,
+                                          height: 1.2,
                                         ),
                                         cursorColor: Colors.white,
                                         decoration: InputDecoration(
                                           isDense: true,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 10, vertical: 10),
                                           hintText:
                                               'Buscar producto · escribe mm y el código del filtro',
                                           hintStyle: const TextStyle(
                                             color: Colors.white38,
                                             fontSize: 13,
+                                            height: 1.2,
                                           ),
                                           filled: true,
                                           fillColor: Colors.black26,
@@ -816,21 +1021,35 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                                 ? AppTheme.colorPrimario
                                                 : Colors.white54,
                                           ),
-                                          suffixIcon:
-                                              busq.activa
-                                                  ? IconButton(
-                                                      tooltip: 'Limpiar',
-                                                      icon: const Icon(
-                                                        Icons.clear,
-                                                        size: 18,
-                                                      ),
-                                                      onPressed: () {
-                                                        _buscarCatalogoCtrl
-                                                            .clear();
-                                                        setState(() {});
-                                                      },
-                                                    )
-                                                  : null,
+                                          prefixIconConstraints:
+                                              const BoxConstraints(
+                                            minWidth: 0,
+                                            minHeight: 0,
+                                          ),
+                                          suffixIcon: busq.activa
+                                              ? IconButton(
+                                                  tooltip: 'Limpiar',
+                                                  icon: const Icon(
+                                                    Icons.clear,
+                                                    size: 18,
+                                                  ),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                    minWidth: 0,
+                                                    minHeight: 0,
+                                                  ),
+                                                  onPressed: () {
+                                                    _buscarCatalogoCtrl.clear();
+                                                    setState(() {});
+                                                  },
+                                                )
+                                              : null,
+                                          suffixIconConstraints:
+                                              const BoxConstraints(
+                                            minWidth: 0,
+                                            minHeight: 0,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -842,6 +1061,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                         busquedaActiva: busq.activa,
                                         modoCampoFiltro: busq.modoFiltroMm,
                                         terminoBusqueda: busq.termino,
+                                        onManual: _abrirNotaLibre,
                                       ),
                                     ),
                                   ],
@@ -856,9 +1076,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                             lineas: mesaPv.lineas,
                             soloLectura: mesaPv.soloLectura,
                             onLineaTap: onLineaTap,
-                            onNotaLibre: mesaPv.soloLectura
-                                ? null
-                                : _abrirNotaLibre,
                           ),
                         ),
                       ],

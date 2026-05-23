@@ -37,14 +37,12 @@ class LineasPanel extends StatefulWidget {
   final List<LineaPedido> lineas;
   final bool soloLectura;
   final void Function(LineaPedido) onLineaTap;
-  final VoidCallback? onNotaLibre;
 
   const LineasPanel({
     super.key,
     required this.lineas,
     required this.soloLectura,
     required this.onLineaTap,
-    this.onNotaLibre,
   });
 
   @override
@@ -116,36 +114,7 @@ class _LineasPanelState extends State<LineasPanel> {
       );
     }
 
-    return Column(
-      children: [
-        Container(
-          color: AppTheme.colorSuperficie,
-          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-          child: Row(
-            children: [
-              const Text(
-                'Pedido',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
-              ),
-              const Spacer(),
-              if (widget.onNotaLibre != null && !widget.soloLectura)
-                Tooltip(
-                  message: 'Nota / Artículo libre',
-                  child: IconButton(
-                    icon: const Icon(Icons.add_comment_outlined, size: 20),
-                    onPressed: widget.onNotaLibre,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 36, minHeight: 36),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Expanded(child: body),
-      ],
-    );
+    return body;
   }
 }
 

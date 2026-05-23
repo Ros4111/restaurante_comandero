@@ -76,6 +76,18 @@ class CashlogyService {
   static const _prefHost = 'cashlogy_host';
   static const _prefPort = 'cashlogy_port';
   static const _prefTill = 'cashlogy_till_code';
+  static const _prefEnabled = 'cashlogy_enabled';
+
+  /// Cobro en efectivo al cerrar mesa (desactivado por defecto).
+  static Future<bool> isEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_prefEnabled) ?? false;
+  }
+
+  static Future<void> setEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefEnabled, enabled);
+  }
 
   static Future<CashlogyConfig> loadConfig() async {
     final prefs = await SharedPreferences.getInstance();

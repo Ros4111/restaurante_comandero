@@ -92,11 +92,15 @@ function _textosProductoParaPedido(PDO $db, int $idProducto): array {
 // ── Obtener pedido completo ────────────────────────────────────
 function endpointPedidoGet(array $payload, int $idPedido): void {
     $db = getDB();
+    $terminalSerie = trim((string)($_GET['terminal_serie'] ?? ''));
 
     $cab = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ?');
     $cab->execute([$idPedido]);
-    $cabRow = $cab->fetch();
-    if (!$cabRow) jsonError('Pedido no encontrado', 404);
+    $cabRow = $cab->fetch(PDO::FETCH_ASSOC);
+    if (!$cabRow) {
+        incidenciaMesaNoEncontrada($db, 'get_pedido', $idPedido, $terminalSerie, (int)$payload['sub']);
+        jsonError('Mesa no encontrada', 404);
+    }
 
     $det = $db->prepare(
         'SELECT * FROM pedido_detalles WHERE id_pedido = ? ORDER BY orden, orden'
@@ -112,7 +116,22 @@ function endpointPedidoGet(array $payload, int $idPedido): void {
     }
     unset($d);
 
-    jsonOk(['cabecera' => $cabRow, 'detalles' => $detalles]);
+    $vigente = pedidoBloqueoVigente($cabRow);
+    $terminalBloqueo = trim((string)($cabRow['terminal_serie_bloqueo'] ?? ''));
+    $tengoBloqueo = $vigente
+        && $terminalSerie !== ''
+        && strcasecmp($terminalBloqueo, $terminalSerie) === 0;
+    if (!$tengoBloqueo) {
+        $cabRow['terminal_serie_bloqueo'] = '';
+    }
+    jsonOk([
+        'cabecera'  => $cabRow,
+        'detalles'  => $detalles,
+        'bloqueo'   => [
+            'vigente'       => $vigente,
+            'tengo_bloqueo' => $tengoBloqueo,
+        ],
+    ]);
 }
 
 // ── Guardar pedido (diff + impresión) ────────────────────────
@@ -132,10 +151,27 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
         $st->execute([$idPedido]);
         $cab = $st->fetch();
-        if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
+        if (!$cab) {
+            $db->rollBack();
+            incidenciaMesaNoEncontrada($db, 'guardar_pedido', $idPedido, $terminalSerie, (int)$payload['sub']);
+            jsonError('Mesa no encontrada', 404);
+        }
 
         // Verificar que el usuario tiene el bloqueo vigente
         _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
+
+        $horaRef = trim((string)($body['hora_ultima_accion_ref'] ?? ''));
+        if ($horaRef !== '') {
+            $tsServidor = strtotime((string)$cab['hora_ultima_accion']);
+            $tsCliente  = strtotime($horaRef);
+            if ($tsServidor !== false && $tsCliente !== false && $tsServidor > $tsCliente) {
+                $db->rollBack();
+                jsonError(
+                    'La mesa fue modificada por otro usuario. No se pueden aplicar tus cambios.',
+                    409
+                );
+            }
+        }
 
         // Leer detalles actuales en BD
         $stDet = $db->prepare('SELECT * FROM pedido_detalles WHERE id_pedido = ?');
@@ -363,28 +399,37 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             $baseImp = $tot['base_imponible'];
             $impIVA  = $tot['importe_IVA'];
 
-            // Al guardar con líneas, liberar bloqueo. Solo tocar hora_ultima_accion si hubo cambios.
+            // Mantener bloqueo del terminal que guarda (sigue editando la mesa).
+            $idUser = (int)$payload['sub'];
             if ($huboCambios) {
-                $db->prepare(
+                $stUpd = $db->prepare(
                     'UPDATE pedido_cabecera
                         SET hora_ultima_accion = NOW(),
-                            id_usuario_bloqueo = 0,
-                            terminal_serie_bloqueo = NULL,
+                            hora_bloqueo = NOW(),
+                            id_usuario_bloqueo = ?,
+                            terminal_serie_bloqueo = ?,
                             nombre_cliente = ?,
                             base_imponible = ?,
                             importe_IVA    = ?
                       WHERE id_pedido = ?'
-                )->execute([$nombreCliente, $baseImp, $impIVA, $idPedido]);
+                );
+                $stUpd->execute([
+                    $idUser, $terminalSerie, $nombreCliente, $baseImp, $impIVA, $idPedido,
+                ]);
             } else {
-                $db->prepare(
+                $stUpd = $db->prepare(
                     'UPDATE pedido_cabecera
-                        SET id_usuario_bloqueo = 0,
-                            terminal_serie_bloqueo = NULL,
+                        SET hora_bloqueo = NOW(),
+                            id_usuario_bloqueo = ?,
+                            terminal_serie_bloqueo = ?,
                             nombre_cliente = ?,
                             base_imponible = ?,
                             importe_IVA    = ?
                       WHERE id_pedido = ?'
-                )->execute([$nombreCliente, $baseImp, $impIVA, $idPedido]);
+                );
+                $stUpd->execute([
+                    $idUser, $terminalSerie, $nombreCliente, $baseImp, $impIVA, $idPedido,
+                ]);
             }
         }
 
@@ -399,13 +444,15 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
 
 // ── Helpers privados ──────────────────────────────────────────
 function _verificarBloqueoGuardar(array $cab, array $payload, string $terminalSerie): void {
-    if ($payload['rol'] === 'admin') return;
-    if (
-        ($cab['terminal_serie_bloqueo'] ?? '') !== $terminalSerie ||
-        !$cab['hora_bloqueo'] ||
-        (strtotime($cab['hora_bloqueo']) + LOCK_TTL) <= time()
-    ) {
-        jsonError('No tienes el bloqueo activo de esta mesa', 409);
+    if (!terminalTieneBloqueoPedido($cab, $terminalSerie)) {
+        if (otroTerminalTieneBloqueoPedido($cab, $terminalSerie)) {
+            jsonError(mensajeMesaBloqueadaSoloLectura(), 409);
+        }
+        jsonError(
+            'No tienes el bloqueo activo de esta mesa (expiró tras 3 min sin actividad). '
+            . 'No puedes guardar.',
+            409
+        );
     }
 }
 
@@ -436,8 +483,9 @@ function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser): int {
 
     $db->prepare(
         'INSERT INTO pedido_cabecera
-         (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, terminal_serie_bloqueo)
-         VALUES (?, ?, 0, NULL, NOW(), NULL)'
+         (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
+          hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo)
+         VALUES (?, ?, 0, NULL, NOW(), \'\', \'\')'
     )->execute([$idMesa, $idUser]);
     return (int)$db->lastInsertId();
 }
@@ -624,7 +672,11 @@ function endpointNotaLibre(array $payload, int $idPedido): void {
         $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
         $st->execute([$idPedido]);
         $cab = $st->fetch();
-        if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
+        if (!$cab) {
+            $db->rollBack();
+            incidenciaMesaNoEncontrada($db, 'nota_libre', $idPedido, $terminalSerie, (int)$payload['sub']);
+            jsonError('Mesa no encontrada', 404);
+        }
         _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
 
         $stMax = $db->prepare('SELECT COALESCE(MAX(orden), 0) AS m FROM pedido_detalles WHERE id_pedido = ?');
@@ -696,7 +748,11 @@ function endpointNotaLibreEditar(array $payload, int $idPedido, int $idLinea): v
         $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
         $st->execute([$idPedido]);
         $cab = $st->fetch();
-        if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
+        if (!$cab) {
+            $db->rollBack();
+            incidenciaMesaNoEncontrada($db, 'nota_libre_editar', $idPedido, $terminalSerie, (int)$payload['sub']);
+            jsonError('Mesa no encontrada', 404);
+        }
         _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
 
         // Verificar que la línea pertenece al pedido y es nota libre

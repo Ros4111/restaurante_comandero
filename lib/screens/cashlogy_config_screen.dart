@@ -16,6 +16,7 @@ class _CashlogyConfigScreenState extends State<CashlogyConfigScreen> {
   final _portCtrl = TextEditingController();
   final _tillCtrl = TextEditingController();
   bool _cargando = false;
+  bool _habilitado = false;
   String? _log;
 
   @override
@@ -34,10 +35,23 @@ class _CashlogyConfigScreenState extends State<CashlogyConfigScreen> {
 
   Future<void> _cargar() async {
     final cfg = await CashlogyService.loadConfig();
+    final habilitado = await CashlogyService.isEnabled();
     _hostCtrl.text = cfg.host;
     _portCtrl.text = '${cfg.port}';
     _tillCtrl.text = cfg.tillCode;
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() => _habilitado = habilitado);
+    }
+  }
+
+  Future<void> _cambiarHabilitado(bool value) async {
+    await CashlogyService.setEnabled(value);
+    if (mounted) setState(() => _habilitado = value);
+    _mostrarSnack(
+      value
+          ? 'Cobro con Cashlogy activado al cerrar mesa'
+          : 'Cobro con Cashlogy desactivado (la configuración se conserva)',
+    );
   }
 
   Future<CashlogyConfig?> _guardarConfig() async {
@@ -138,6 +152,25 @@ class _CashlogyConfigScreenState extends State<CashlogyConfigScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'Cobro al cerrar mesa',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                _habilitado
+                    ? 'Al cerrar una mesa con importe se cobra en Cashlogy.'
+                    : 'Desactivado: cerrar mesa no usa Cashlogy. Puedes seguir configurando y probando aquí.',
+                style: const TextStyle(
+                  color: AppTheme.colorTextoGris,
+                  fontSize: 13,
+                ),
+              ),
+              value: _habilitado,
+              onChanged: _cargando ? null : _cambiarHabilitado,
+            ),
+            const Divider(height: 24),
             const Text(
               'Conexión con Cashlogy Connector (TCP). '
               'El PC debe tener Connector en ejecución y la máquina encendida.',

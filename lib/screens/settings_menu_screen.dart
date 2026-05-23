@@ -185,7 +185,7 @@ class SettingsMenuScreen extends StatelessWidget {
                 child: ElevatedButton.icon(
                   onPressed: () => _openCashlogy(context),
                   icon: const Icon(Icons.toll_outlined),
-                  label: const Text('Cashlogy (cobro efectivo)'),
+                  label: const Text('Cashlogy (configuración)'),
                 ),
               ),
               const SizedBox(height: 12),

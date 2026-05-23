@@ -5,6 +5,7 @@ declare(strict_types=1);
 // ── Listar mesas abiertas ─────────────────────────────────────
 function endpointMesasListar(array $payload): void {
     $db = getDB();
+    $terminalSerie = trim((string)($_GET['terminal_serie'] ?? ''));
     $rows = $db->query(
         'SELECT pc.id_pedido, pc.id_mesa, pc.hora_creacion, pc.id_usuario_creacion,
                 pc.hora_ultima_accion, pc.estado_mesa, pc.id_usuario_bloqueo, pc.hora_bloqueo,
@@ -14,6 +15,20 @@ function endpointMesasListar(array $payload): void {
            FROM pedido_cabecera pc
           ORDER BY pc.id_mesa'
     )->fetchAll();
+    foreach ($rows as &$row) {
+        $vigente = pedidoBloqueoVigente($row);
+        $serie = trim((string)($row['terminal_serie_bloqueo'] ?? ''));
+        $porMi = $vigente
+            && $serie !== ''
+            && $terminalSerie !== ''
+            && strcasecmp($serie, $terminalSerie) === 0;
+        $row['bloqueo_vigente'] = $vigente && $serie !== '';
+        $row['bloqueada_por_mi'] = $porMi;
+        if (!$porMi) {
+            $row['terminal_serie_bloqueo'] = '';
+        }
+    }
+    unset($row);
     jsonOk($rows);
 }
 
@@ -33,16 +48,22 @@ function endpointMesaAbrir(array $payload): void {
 
     $db->beginTransaction();
     try {
-        verificarTerminalSinOtraMesaAbierta($db, $terminalSerie);
+        liberarOtrasMesasBloqueadasDelTerminal($db, $terminalSerie, (int)$payload['sub']);
         $st = $db->prepare(
             'INSERT INTO pedido_cabecera
-             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, terminal_serie_bloqueo)
-             VALUES (?, ?, ?, NOW(), NOW(), ?)'
+             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
+              hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo)
+             VALUES (?, ?, ?, NOW(), NOW(), \'\', ?)'
         );
         $st->execute([$mesa, $payload['sub'], $payload['sub'], $terminalSerie]);
-        $id = $db->lastInsertId();
+        $id = (int)$db->lastInsertId();
+        verificarBloqueoPersistido($db, $id, $terminalSerie);
         $db->commit();
-        jsonOk(['id_pedido' => $id]);
+        jsonOk([
+            'id_pedido'      => $id,
+            'bloqueado'      => true,
+            'terminal_serie' => $terminalSerie,
+        ]);
     } catch (Throwable $e) {
         $db->rollBack();
         jsonError('Error al abrir mesa: ' . $e->getMessage(), 500);
@@ -62,29 +83,34 @@ function endpointMesaBloquear(array $payload, int $idPedido): void {
                FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE'
         );
         $st->execute([$idPedido]);
-        $row = $st->fetch();
-        if (!$row) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
-
-        $bloqueoPorOtro = !empty($row['terminal_serie_bloqueo']) &&
-                          $row['terminal_serie_bloqueo'] !== $terminalSerie &&
-                          $row['hora_bloqueo'] &&
-                          (strtotime($row['hora_bloqueo']) + LOCK_TTL) > time();
-
-        if ($bloqueoPorOtro) {
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
             $db->rollBack();
-            $terminalBloqueador = $row['terminal_serie_bloqueo'] ?? 'Desconocido';
-            jsonError("Mesa bloqueada por terminal $terminalBloqueador", 409);
+            incidenciaMesaNoEncontrada($db, 'bloquear_mesa', $idPedido, $terminalSerie, (int)$payload['sub']);
+            jsonError('Mesa no encontrada', 404);
         }
 
-        verificarTerminalSinOtraMesaAbierta($db, $terminalSerie, $idPedido);
+        if (otroTerminalTieneBloqueoPedido($row, $terminalSerie)) {
+            $db->rollBack();
+            jsonError(mensajeMesaBloqueadaSoloLectura(), 409);
+        }
 
-        $db->prepare(
-            'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW(), terminal_serie_bloqueo=?
-              WHERE id_pedido=?'
-        )->execute([$payload['sub'], $terminalSerie, $idPedido]);
+        liberarOtrasMesasBloqueadasDelTerminal($db, $terminalSerie, (int)$payload['sub'], $idPedido);
 
+        if (!adquirirBloqueoMesa($db, $idPedido, (int)$payload['sub'], $terminalSerie)) {
+            $db->rollBack();
+            jsonError(
+                'Otro dispositivo acaba de tomar esta mesa. Actualiza la lista e inténtalo de nuevo.',
+                409
+            );
+        }
+
+        verificarBloqueoPersistido($db, $idPedido, $terminalSerie);
         $db->commit();
-        jsonOk(['bloqueado' => true]);
+        jsonOk([
+            'bloqueado'      => true,
+            'terminal_serie' => $terminalSerie,
+        ]);
     } catch (Throwable $e) {
         $db->rollBack();
         jsonError('Error de bloqueo: ' . $e->getMessage(), 500);
@@ -105,14 +131,32 @@ function endpointMesaPing(array $payload, int $idPedido): void {
     $body = getBody();
     $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
-    $st = $db->prepare(
-        'UPDATE pedido_cabecera
-            SET hora_bloqueo = NOW()
-          WHERE id_pedido = ? AND terminal_serie_bloqueo = ?'
-    );
-    $st->execute([$idPedido, $terminalSerie]);
-    if ($st->rowCount() === 0) jsonError('No tienes el bloqueo de esta mesa', 409);
-    jsonOk(['ping' => 'ok']);
+    $db->beginTransaction();
+    try {
+        $st = $db->prepare(
+            'SELECT terminal_serie_bloqueo, hora_bloqueo
+               FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE'
+        );
+        $st->execute([$idPedido]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            $db->rollBack();
+            jsonError('Mesa no encontrada', 404);
+        }
+        if (otroTerminalTieneBloqueoPedido($row, $terminalSerie)) {
+            $db->rollBack();
+            jsonError(mensajeMesaBloqueadaSoloLectura(), 409);
+        }
+        if (!adquirirBloqueoMesa($db, $idPedido, (int)$payload['sub'], $terminalSerie)) {
+            $db->rollBack();
+            jsonError('No tienes el bloqueo de esta mesa', 409);
+        }
+        $db->commit();
+        jsonOk(['ping' => 'ok']);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        throw $e;
+    }
 }
 
 // ── Expulsar usuario (solo admin/supervisor) ──────────────────
@@ -121,12 +165,28 @@ function endpointMesaExpulsar(array $payload, int $idPedido): void {
     $body = getBody();
     $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
-    verificarTerminalSinOtraMesaAbierta($db, $terminalSerie, $idPedido);
-    $db->prepare(
-        'UPDATE pedido_cabecera SET id_usuario_bloqueo=?, hora_bloqueo=NOW(), terminal_serie_bloqueo=?
-          WHERE id_pedido=?'
-    )->execute([$payload['sub'], $terminalSerie, $idPedido]);
-    jsonOk(['expulsado' => true]);
+    $db->beginTransaction();
+    try {
+        $st = $db->prepare(
+            'SELECT terminal_serie_bloqueo, hora_bloqueo FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE'
+        );
+        $st->execute([$idPedido]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            $db->rollBack();
+            jsonError('Mesa no encontrada', 404);
+        }
+        liberarOtrasMesasBloqueadasDelTerminal($db, $terminalSerie, (int)$payload['sub'], $idPedido);
+        if (!adquirirBloqueoMesa($db, $idPedido, (int)$payload['sub'], $terminalSerie)) {
+            $db->rollBack();
+            jsonError('No se pudo tomar el bloqueo de la mesa', 409);
+        }
+        $db->commit();
+        jsonOk(['expulsado' => true]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        jsonError('Error al expulsar: ' . $e->getMessage(), 500);
+    }
 }
 
 // ── Cerrar mesa (mover a histórico) ──────────────────────────
@@ -140,19 +200,37 @@ function endpointMesaCerrar(array $payload, int $idPedido): void {
         $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
         $st->execute([$idPedido]);
         $cab = $st->fetch();
-        if (!$cab) { $db->rollBack(); jsonError('Mesa no encontrada', 404); }
+        if (!$cab) {
+            $db->rollBack();
+            incidenciaMesaNoEncontrada($db, 'cerrar_mesa', $idPedido, $terminalSerie, (int)$payload['sub']);
+            jsonError('Mesa no encontrada', 404);
+        }
 
         _verificarBloqueo($cab, $payload, $terminalSerie);
 
-        // Copiar a histórico
+        // Copiar a histórico (columnas explícitas: orden distinto en tablas históricas)
         $db->prepare(
             'INSERT INTO pedido_cabecera_historico
-             SELECT *, NOW() AS hora_cierre FROM pedido_cabecera WHERE id_pedido = ?'
+             (id_pedido, id_mesa, hora_creacion, nombre_cliente, id_usuario_creacion,
+              terminal_serie_bloqueo, hora_ultima_accion, estado_mesa, id_usuario_bloqueo,
+              hora_bloqueo, base_imponible, importe_IVA, hora_cierre)
+             SELECT id_pedido, id_mesa, hora_creacion, nombre_cliente, id_usuario_creacion,
+              terminal_serie_bloqueo, hora_ultima_accion, estado_mesa, id_usuario_bloqueo,
+              hora_bloqueo, base_imponible, importe_IVA, NOW()
+               FROM pedido_cabecera WHERE id_pedido = ?'
         )->execute([$idPedido]);
 
         $db->prepare(
             'INSERT INTO pedido_detalles_historico
-             SELECT *, ? AS id_pedido_historico FROM pedido_detalles WHERE id_pedido = ?'
+             (id_linea, id_pedido, id_producto, cantidad, comentario, nombre_producto_pantalla,
+              opciones_elegidas, texto_imprimir_cocina, texto_imprimir_cliente, orden,
+              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, servido, hora_pedido,
+              modificado_servicio, id_pedido_historico)
+             SELECT id_linea, id_pedido, id_producto, cantidad, comentario, nombre_producto_pantalla,
+              opciones_elegidas, texto_imprimir_cocina, texto_imprimir_cliente, orden,
+              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, servido, hora_pedido,
+              modificado_servicio, ?
+               FROM pedido_detalles WHERE id_pedido = ?'
         )->execute([$idPedido, $idPedido]);
 
         // Borrar activo
@@ -169,13 +247,14 @@ function endpointMesaCerrar(array $payload, int $idPedido): void {
 
 // ── Helper privado: verifica que el payload tiene el bloqueo ─
 function _verificarBloqueo(array $cab, array $payload, string $terminalSerie): void {
-    if ($payload['rol'] === 'admin') return; // admin siempre puede
-    if (
-        ($cab['terminal_serie_bloqueo'] ?? '') !== $terminalSerie ||
-        !$cab['hora_bloqueo'] ||
-        (strtotime($cab['hora_bloqueo']) + LOCK_TTL) <= time()
-    ) {
-        jsonError('No tienes el bloqueo de esta mesa o ha expirado', 409);
+    if (!terminalTieneBloqueoPedido($cab, $terminalSerie)) {
+        if (otroTerminalTieneBloqueoPedido($cab, $terminalSerie)) {
+            jsonError(mensajeMesaBloqueadaSoloLectura(), 409);
+        }
+        jsonError(
+            'No tienes el bloqueo activo de esta mesa (expiró tras 3 min sin actividad).',
+            409
+        );
     }
 }
 
@@ -225,9 +304,10 @@ function endpointMesaTraspasar(array $payload, int $idPedido): void {
         } else {
             $db->prepare(
                 'INSERT INTO pedido_cabecera
-                 (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo, hora_ultima_accion, nombre_cliente)
-                 VALUES (?, ?, 0, NULL, NOW(), ?)'
-            )->execute([$idMesaDestino, $payload['sub'], $cab['nombre_cliente']]);
+                 (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
+                  hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo)
+                 VALUES (?, ?, 0, NULL, NOW(), ?, \'\')'
+            )->execute([$idMesaDestino, $payload['sub'], $cab['nombre_cliente'] ?? '']);
             $idPedidoDestino = (int)$db->lastInsertId();
         }
 
@@ -236,13 +316,32 @@ function endpointMesaTraspasar(array $payload, int $idPedido): void {
         $stMax->execute([$idPedidoDestino]);
         $maxOrden = (int)($stMax->fetch()['m'] ?? 0);
 
-        // Mover todas las líneas de origen a destino
-        $stLineas = $db->prepare('SELECT id_linea FROM pedido_detalles WHERE id_pedido = ? ORDER BY orden');
+        // Mover todas las líneas de origen a destino (un registro por línea)
+        $stLineas = $db->prepare(
+            'SELECT id_linea, nombre_producto_pantalla, cantidad
+               FROM pedido_detalles WHERE id_pedido = ? ORDER BY orden'
+        );
         $stLineas->execute([$idPedido]);
+        $lineasTraspaso = $stLineas->fetchAll(PDO::FETCH_ASSOC);
         $stUpd = $db->prepare('UPDATE pedido_detalles SET id_pedido=?, orden=?, impreso=0 WHERE id_linea=?');
-        foreach ($stLineas->fetchAll(PDO::FETCH_ASSOC) as $linea) {
+        $stLog = $db->prepare(
+            'INSERT INTO registro_cambios (id_usuario, tipo_accion, json_cambio) VALUES (?,?,?)'
+        );
+        foreach ($lineasTraspaso as $linea) {
             $maxOrden++;
-            $stUpd->execute([$idPedidoDestino, $maxOrden, (int)$linea['id_linea']]);
+            $idLinea = (int)$linea['id_linea'];
+            $stUpd->execute([$idPedidoDestino, $maxOrden, $idLinea]);
+            $stLog->execute([
+                $payload['sub'],
+                'cambio_mesa',
+                json_encode([
+                    'id_linea'    => $idLinea,
+                    'mesa_origen' => $idMesaOrigen,
+                    'mesa_dest'   => $idMesaDestino,
+                    'producto'    => trim((string)$linea['nombre_producto_pantalla']),
+                    'cantidad'    => max(1, (int)$linea['cantidad']),
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
         }
 
         // Recalcular totales de la mesa destino
@@ -269,19 +368,6 @@ function endpointMesaTraspasar(array $payload, int $idPedido): void {
             'UPDATE pedido_cabecera SET base_imponible=?, importe_IVA=?, hora_ultima_accion=NOW()
               WHERE id_pedido=?'
         )->execute([round($baseImp, 2), round($impIVA, 2), $idPedidoDestino]);
-
-        // Registrar el traspaso en el log de cambios
-        $db->prepare(
-            'INSERT INTO registro_cambios (id_usuario, tipo_accion, json_cambio) VALUES (?,?,?)'
-        )->execute([
-            $payload['sub'],
-            'traspaso_mesa',
-            json_encode([
-                'mesa_origen'   => $idMesaOrigen,
-                'mesa_destino'  => $idMesaDestino,
-                'num_lineas'    => $numLineas,
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
 
         // Eliminar la cabecera de la mesa origen (ya sin líneas)
         $db->prepare('DELETE FROM pedido_cabecera WHERE id_pedido = ?')->execute([$idPedido]);
@@ -370,20 +456,44 @@ function endpointMesaMovimientos(array $payload, int $idPedido): void {
             continue;
         }
         if ($tipo === 'traspaso_mesa') {
+            // Registros antiguos (un solo evento agregado)
             $origen = (int)($data['mesa_origen'] ?? 0);
             $dest = (int)($data['mesa_destino'] ?? 0);
-            $num = (int)($data['num_lineas'] ?? 0);
-            $item['producto'] = $num > 0
-                ? "Traspaso completo ($num líneas)"
-                : 'Traspaso completo';
-            $item['cantidad'] = $num > 0 ? $num : 1;
-            if ($origen === $idMesa) {
-                $item['mesa_destino'] = $dest;
-                $enviados[] = $item;
-            }
-            if ($dest === $idMesa) {
-                $item['mesa_origen'] = $origen;
-                $recibidos[] = $item;
+            $lineasJson = $data['lineas'] ?? null;
+            if (is_array($lineasJson) && $lineasJson !== []) {
+                foreach ($lineasJson as $ln) {
+                    if (!is_array($ln)) {
+                        continue;
+                    }
+                    $det = $item;
+                    $det['producto'] = trim((string)($ln['producto'] ?? ''));
+                    if ($det['producto'] === '') {
+                        $det['producto'] = '—';
+                    }
+                    $det['cantidad'] = max(1, (int)($ln['cantidad'] ?? 1));
+                    if ($origen === $idMesa) {
+                        $det['mesa_destino'] = $dest;
+                        $enviados[] = $det;
+                    }
+                    if ($dest === $idMesa) {
+                        $det['mesa_origen'] = $origen;
+                        $recibidos[] = $det;
+                    }
+                }
+            } else {
+                $num = (int)($data['num_lineas'] ?? 0);
+                $item['producto'] = $num > 0
+                    ? "Traspaso completo ($num líneas, sin detalle)"
+                    : 'Traspaso completo (sin detalle)';
+                $item['cantidad'] = 1;
+                if ($origen === $idMesa) {
+                    $item['mesa_destino'] = $dest;
+                    $enviados[] = $item;
+                }
+                if ($dest === $idMesa) {
+                    $item['mesa_origen'] = $origen;
+                    $recibidos[] = $item;
+                }
             }
         }
     }

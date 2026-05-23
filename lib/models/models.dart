@@ -345,6 +345,8 @@ class MesaResumen {
   final String? horaUltimaAccion;
   final int totalLineas;
   final double totalImporte;
+  final bool bloqueoVigente;
+  final bool bloqueadaPorMi;
 
   MesaResumen({
     required this.idPedido,
@@ -359,6 +361,8 @@ class MesaResumen {
     this.horaUltimaAccion,
     required this.totalLineas,
     this.totalImporte = 0.0,
+    this.bloqueoVigente = false,
+    this.bloqueadaPorMi = false,
   });
 
   factory MesaResumen.fromJson(Map<String, dynamic> j) => MesaResumen(
@@ -377,6 +381,8 @@ class MesaResumen {
         totalLineas: int.parse((j['total_lineas'] ?? 0).toString()),
         totalImporte:
             double.tryParse((j['total_importe'] ?? 0).toString()) ?? 0.0,
+        bloqueoVigente: j['bloqueo_vigente'] == true,
+        bloqueadaPorMi: j['bloqueada_por_mi'] == true,
       );
 }
 
