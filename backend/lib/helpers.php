@@ -17,7 +17,7 @@ function jsonError(string $msg, int $code = 400): void {
 }
 
 function mensajeMesaBloqueadaSoloLectura(): string {
-    return 'Mesa Bloqueada. Solo Ver.';
+    return 'Bloqueada';
 }
 
 function requireAuth(): array {

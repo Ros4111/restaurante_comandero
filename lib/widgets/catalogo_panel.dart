@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/catalogo_provider.dart';
+import '../utils/busqueda_texto.dart';
 import '../utils/theme.dart';
 
 /// Texto de categorías / subcategorías (los productos siguen en blanco).
@@ -16,11 +17,8 @@ class CatalogoPanel extends StatefulWidget {
   /// Búsqueda por texto en pantalla de pedido: si está activa no se muestran categorías.
   final bool busquedaActiva;
 
-  /// true ⇒ coincide con campo [Producto.filtro] (`mm` como prefijo en el campo padre).
-  final bool modoCampoFiltro;
-
-  /// Texto a buscar (sin el prefijo `mm` si correspondía).
-  final String terminoBusqueda;
+  /// Interpretación del campo de búsqueda (nombre, filtro u opciones).
+  final BusquedaCatalogoPedido busqueda;
 
   /// Nota / artículo libre (solo en la raíz del catálogo).
   final VoidCallback? onManual;
@@ -30,8 +28,7 @@ class CatalogoPanel extends StatefulWidget {
     required this.onTap,
     required this.onLongPress,
     this.busquedaActiva = false,
-    this.modoCampoFiltro = false,
-    this.terminoBusqueda = '',
+    this.busqueda = kBusquedaCatalogoPedidoInactiva,
     this.onManual,
   });
 
@@ -61,11 +58,20 @@ class CatalogoPanelState extends State<CatalogoPanel> {
     final modoBusqueda = widget.busquedaActiva;
     late final List<Producto> resultadoBusqueda;
     if (modoBusqueda) {
-      resultadoBusqueda =
-          widget.modoCampoFiltro && widget.terminoBusqueda.trim().isEmpty
+      resultadoBusqueda = switch (widget.busqueda.modo) {
+        ModoBusquedaCatalogoPedido.porNombre =>
+          catalogo.productosPorBusquedaNombre(widget.busqueda.terminoNombre),
+        ModoBusquedaCatalogoPedido.porFiltro =>
+          widget.busqueda.filtro.trim().isEmpty
               ? const <Producto>[]
-              : catalogo.productosPorBusquedaPedido(widget.terminoBusqueda,
-                  enFiltro: widget.modoCampoFiltro);
+              : catalogo.productosPorBusquedaFiltro(widget.busqueda.filtro),
+        ModoBusquedaCatalogoPedido.porFiltroOpciones =>
+          catalogo.productosPorBusquedaFiltroOpciones(
+            widget.busqueda.filtro,
+            widget.busqueda.tokensOpcion,
+          ),
+        ModoBusquedaCatalogoPedido.inactiva => const <Producto>[],
+      };
     } else {
       resultadoBusqueda = const [];
     }
@@ -80,11 +86,14 @@ class CatalogoPanelState extends State<CatalogoPanel> {
 
     String? etiquetaCabecera;
     if (modoBusqueda) {
-      if (widget.modoCampoFiltro && widget.terminoBusqueda.trim().isEmpty) {
-        etiquetaCabecera = 'Filtrar campo clave (añade texto tras mm)';
-      } else {
-        etiquetaCabecera = widget.modoCampoFiltro ? 'Por filtro' : 'Por nombre';
-      }
+      etiquetaCabecera = switch (widget.busqueda.modo) {
+        ModoBusquedaCatalogoPedido.porFiltro when widget.busqueda.filtro.isEmpty =>
+          'Filtrar campo clave (añade texto tras mm)',
+        ModoBusquedaCatalogoPedido.porFiltro => 'Por filtro',
+        ModoBusquedaCatalogoPedido.porFiltroOpciones =>
+          'Por filtro y opciones',
+        _ => 'Por nombre',
+      };
     }
 
     final showHeader = hayAtras || modoBusqueda;
@@ -143,10 +152,13 @@ class CatalogoPanelState extends State<CatalogoPanel> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
                   child: Text(
-                    widget.modoCampoFiltro &&
-                            widget.terminoBusqueda.trim().isEmpty
+                    widget.busqueda.modo == ModoBusquedaCatalogoPedido.porFiltro &&
+                            widget.busqueda.filtro.trim().isEmpty
                         ? 'Escribe después de mm el texto del campo filtro (ej. mmCL)'
-                        : 'No hay coincidencias',
+                        : widget.busqueda.modo ==
+                                ModoBusquedaCatalogoPedido.porFiltroOpciones
+                            ? 'No hay producto con ese filtro y opciones'
+                            : 'No hay coincidencias',
                     style: const TextStyle(
                         color: AppTheme.colorTextoGris, fontSize: 15),
                   ),

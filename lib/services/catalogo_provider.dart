@@ -43,23 +43,59 @@ class CatalogoProvider extends ChangeNotifier {
       .toList()
     ..sort((a, b) => a.orden.compareTo(b.orden));
 
-  /// Búsqueda en pantalla de pedido: [enFiltro] usa `Producto.filtro`; si no, nombre/id.
-  List<Producto> productosPorBusquedaPedido(String texto,
-      {required bool enFiltro}) {
-    final needle = texto.trim();
-    if (needle.isEmpty) return [];
-    final n = normalizarTextoBusqueda(needle);
-    if (n.isEmpty) return [];
+  List<Producto> productosPorBusquedaNombre(String texto) =>
+      _filtrarProductosPedido((p) {
+        final n = normalizarTextoBusqueda(texto.trim());
+        if (n.isEmpty) return false;
+        return normalizarTextoBusqueda(p.nombreProductoPantalla).contains(n);
+      }, requiereTexto: texto);
+
+  List<Producto> productosPorBusquedaFiltro(String filtro) =>
+      _filtrarProductosPedido((p) {
+        final n = normalizarTextoBusqueda(filtro.trim());
+        if (n.isEmpty) return false;
+        return normalizarTextoBusqueda(p.filtro).contains(n);
+      }, requiereTexto: filtro);
+
+  /// `mm` + filtro + tokens: filtro y cada token en opción no predeterminada.
+  List<Producto> productosPorBusquedaFiltroOpciones(
+      String filtro, List<String> tokensOpcion) {
+    final f = filtro.trim();
+    final tokens = tokensOpcion
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (f.isEmpty || tokens.isEmpty) return [];
+    return _filtrarProductosPedido((p) {
+      final nf = normalizarTextoBusqueda(f);
+      if (nf.isEmpty) return false;
+      if (!normalizarTextoBusqueda(p.filtro).contains(nf)) return false;
+      for (final token in tokens) {
+        if (!_productoTieneOpcionNoPredeterminada(p.id, token)) return false;
+      }
+      return true;
+    });
+  }
+
+  bool _productoTieneOpcionNoPredeterminada(int idProducto, String token) {
+    final n = normalizarTextoBusqueda(token);
+    if (n.isEmpty) return false;
+    for (final o in opciones) {
+      if (o.idProducto != idProducto || !o.disponible || o.predeterminado) {
+        continue;
+      }
+      if (normalizarTextoBusqueda(o.nombreOpcion).contains(n)) return true;
+    }
+    return false;
+  }
+
+  List<Producto> _filtrarProductosPedido(bool Function(Producto) coincide,
+      {String? requiereTexto}) {
+    if (requiereTexto != null && requiereTexto.trim().isEmpty) return [];
     final out = <Producto>[];
     for (final p in productos) {
       if (!p.disponible) continue;
-      if (enFiltro) {
-        final f = normalizarTextoBusqueda(p.filtro);
-        if (!f.contains(n)) continue;
-      } else {
-        final nm = normalizarTextoBusqueda(p.nombreProductoPantalla);
-        if (!nm.contains(n) && !p.id.toString().contains(needle)) continue;
-      }
+      if (!coincide(p)) continue;
       out.add(p);
     }
     out.sort((a, b) {
@@ -69,6 +105,59 @@ class CatalogoProvider extends ChangeNotifier {
           .toLowerCase()
           .compareTo(b.nombreProductoPantalla.toLowerCase());
     });
+    return out;
+  }
+
+  /// Predeterminados del producto, sustituyendo grupos que coincidan con [tokens].
+  Map<int, OpcionElegida> opcionesElegidasConTokensBusqueda(
+      Producto p, List<String> tokens) {
+    final out = <int, OpcionElegida>{};
+    for (final g in gruposDeProducto(p.id)) {
+      final opts = opcionesDeGrupo(p.id, g.id);
+      final def =
+          opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
+      if (def != null) {
+        out[g.id] = OpcionElegida(
+          nombre: def.nombreOpcion,
+          predeterminado: def.predeterminado,
+        );
+      }
+    }
+
+    final gruposUsados = <int>{};
+    for (final raw in tokens) {
+      final n = normalizarTextoBusqueda(raw.trim());
+      if (n.isEmpty) continue;
+      final candidatas = opciones
+          .where((o) =>
+              o.idProducto == p.id &&
+              o.disponible &&
+              !o.predeterminado &&
+              normalizarTextoBusqueda(o.nombreOpcion).contains(n))
+          .toList()
+        ..sort((a, b) {
+          final go = a.orden.compareTo(b.orden);
+          if (go != 0) return go;
+          return a.nombreOpcion
+              .toLowerCase()
+              .compareTo(b.nombreOpcion.toLowerCase());
+        });
+      if (candidatas.isEmpty) continue;
+
+      OpcionProducto? elegida;
+      for (final c in candidatas) {
+        if (!gruposUsados.contains(c.idGrupo)) {
+          elegida = c;
+          break;
+        }
+      }
+      elegida ??= candidatas.first;
+      gruposUsados.add(elegida.idGrupo);
+      out[elegida.idGrupo] = OpcionElegida(
+        nombre: elegida.nombreOpcion,
+        predeterminado: elegida.predeterminado,
+      );
+    }
     return out;
   }
 

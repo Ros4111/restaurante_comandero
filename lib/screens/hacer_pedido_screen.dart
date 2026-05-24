@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/cashlogy_service.dart';
 import '../services/catalogo_provider.dart';
+import '../utils/busqueda_texto.dart';
 import '../utils/mesa_bloqueo.dart';
 import '../utils/precio_redondeo.dart';
 import '../utils/theme.dart';
@@ -16,19 +17,6 @@ import '../widgets/lineas_panel.dart';
 import '../widgets/producto_opciones_dialog.dart';
 import 'package:restaurante_tpv/screens/reparto_comensales_screen.dart';
 import 'package:restaurante_tpv/services/sunmi_service.dart';
-
-/// Dos `mm` al inicio (tras espacios) ⇒ el resto se busca en [Producto.filtro].
-({bool activa, bool modoFiltroMm, String termino})
-    interpretarCampoBusquedaCatalogoMm(String raw) {
-  final t = raw.trim();
-  if (t.isEmpty) {
-    return (activa: false, modoFiltroMm: false, termino: '');
-  }
-  if (t.length >= 2 && t.substring(0, 2).toLowerCase() == 'mm') {
-    return (activa: true, modoFiltroMm: true, termino: t.substring(2).trim());
-  }
-  return (activa: true, modoFiltroMm: false, termino: t);
-}
 
 class HacerPedidoScreen extends StatefulWidget {
   final int idPedido;
@@ -609,8 +597,16 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   // ── Añadir producto ────────────────────────────────────────
   void onProductoTap(Producto p) {
-    // Click simple: añadir con defaults
-    _addProducto(p, cantidad: 1, comentario: '', opciones: _defaultOpciones(p));
+    final busq =
+        interpretarCampoBusquedaCatalogoMm(_buscarCatalogoCtrl.text);
+    final catalogo = context.read<CatalogoProvider>();
+    final opciones =
+        busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones &&
+                busq.tokensOpcion.isNotEmpty
+            ? catalogo.opcionesElegidasConTokensBusqueda(
+                p, busq.tokensOpcion)
+            : _defaultOpciones(p);
+    _addProducto(p, cantidad: 1, comentario: '', opciones: opciones);
   }
 
   void onProductoLongPress(Producto p) async {
@@ -1066,7 +1062,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                               const EdgeInsets.symmetric(
                                                   horizontal: 10, vertical: 10),
                                           hintText:
-                                              'Buscar producto · escribe mm y el código del filtro',
+                                              'Nombre · mm+código · mm+código opción…',
                                           hintStyle: const TextStyle(
                                             color: Colors.white38,
                                             fontSize: 13,
@@ -1080,11 +1076,22 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                             borderSide: BorderSide.none,
                                           ),
                                           prefixIcon: Icon(
-                                            busq.modoFiltroMm
-                                                ? Icons.tag
-                                                : Icons.search,
+                                            busq.modo ==
+                                                    ModoBusquedaCatalogoPedido
+                                                        .porFiltroOpciones
+                                                ? Icons.tune
+                                                : busq.modo ==
+                                                        ModoBusquedaCatalogoPedido
+                                                            .porFiltro
+                                                    ? Icons.tag
+                                                    : Icons.search,
                                             size: 20,
-                                            color: busq.modoFiltroMm
+                                            color: busq.modo ==
+                                                        ModoBusquedaCatalogoPedido
+                                                            .porFiltro ||
+                                                    busq.modo ==
+                                                        ModoBusquedaCatalogoPedido
+                                                            .porFiltroOpciones
                                                 ? AppTheme.colorPrimario
                                                 : Colors.white54,
                                           ),
@@ -1126,8 +1133,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                         onTap: onProductoTap,
                                         onLongPress: onProductoLongPress,
                                         busquedaActiva: busq.activa,
-                                        modoCampoFiltro: busq.modoFiltroMm,
-                                        terminoBusqueda: busq.termino,
+                                        busqueda: busq,
                                         onManual: _abrirNotaLibre,
                                       ),
                                     ),
