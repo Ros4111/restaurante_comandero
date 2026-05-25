@@ -171,8 +171,8 @@ class _MesasScreenState extends State<MesasScreen> {
     }
 
     try {
+      // abrir_mesa ya deja la mesa bloqueada por este terminal; no hace falta bloquear de nuevo.
       final idPedido = await api.abrirMesa(num);
-      await api.bloquearMesa(idPedido);
       _navPedido(idPedido, num, bloqueadoPorMi: true);
     } on ApiException catch (e) {
       if (mounted) setState(() => _fabVisible = true);
@@ -216,8 +216,12 @@ class _MesasScreenState extends State<MesasScreen> {
           bloqueador: bloqueador,
         ),
       ),
-    ).then((_) {
-      if (mounted) setState(() { _fabVisible = true; _cargandoMesa = false; });
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _fabVisible = true;
+        _cargandoMesa = false;
+      });
       _cargar();
     });
   }
@@ -454,6 +458,7 @@ class _MesasScreenState extends State<MesasScreen> {
       ),
     );
     if (accion == null || accion.isEmpty) return;
+    if (!mounted) return;
 
     final api = context.read<ApiService>();
     try {

@@ -108,7 +108,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     });
   }
 
-  Future<void> _cargarPedido() async {
+  /// [salirSiNoExiste]: si false (p. ej. tras guardar), no hace pop al 404;
+  /// lo gestiona quien llamó para evitar doble Navigator.pop.
+  Future<void> _cargarPedido({bool salirSiNoExiste = true}) async {
     final api = context.read<ApiService>();
     final mesaPv = context.read<MesaProvider>();
     if (mounted) setState(() => _cargandoPedido = true);
@@ -127,7 +129,14 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       });
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
-        if (mounted) _salirPorMesaNoEncontrada(e.message);
+        if (salirSiNoExiste) {
+          await _salirPorMesaNoEncontrada(e.message);
+        } else if (mounted) {
+          setState(() {
+            _cargandoPedido = false;
+            _pantallaLista = true;
+          });
+        }
         return;
       }
       setState(() {
@@ -268,17 +277,22 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   Future<void> _salirMesa({String? aviso}) async {
+    if (!mounted) return;
     _salidaExplicita = true;
     _pingTimer?.cancel();
+    final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (widget.bloqueadoPorMi && !_bloqueoPerdido) {
       try {
         await _api.desbloquearMesa(widget.idPedido);
       } catch (_) {}
     }
-    if (mounted) context.read<MesaProvider>().reset();
-    if (!mounted) return;
-    Navigator.pop(context);
+    if (mounted) {
+      setState(() => _cargandoPedido = false);
+      context.read<MesaProvider>().reset();
+    }
+    if (!navigator.canPop()) return;
+    navigator.pop();
     if (aviso != null && messenger != null) {
       messenger.showSnackBar(
         SnackBar(
@@ -290,8 +304,12 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
   }
 
-  void _salirPorMesaNoEncontrada(String mensaje) {
-    _salirMesa(
+  Future<void> _salirPorMesaNoEncontrada(String mensaje) async {
+    if (!mounted) return;
+    if (_cargandoPedido) {
+      setState(() => _cargandoPedido = false);
+    }
+    await _salirMesa(
       aviso: mensaje.isNotEmpty
           ? mensaje
           : 'La mesa ya no está activa (cerrada o cobrada).',
@@ -317,7 +335,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       if (_offline) setState(() => _offline = false);
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
-        _salirPorMesaNoEncontrada(e.message);
+        await _salirPorMesaNoEncontrada(e.message);
         return;
       }
       if (e.statusCode == 409 && !soloRenovar) {
@@ -392,17 +410,26 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         );
       }
 
-      // Recargar y renovar bloqueo en servidor
-      if (mounted) setState(() => _bloqueoPerdido = false);
-      await _cargarPedido();
+      final pedidoBorrado = mesaPv.lineas.isEmpty;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('✓ Pedido guardado'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                pedidoBorrado ? '✓ Pedido borrado' : '✓ Pedido guardado'),
+            backgroundColor: Colors.green));
       }
+
+      // Sin líneas el servidor elimina pedido_cabecera; no recargar (salida: botón guardar).
+      if (pedidoBorrado) {
+        return true;
+      }
+
+      if (mounted) setState(() => _bloqueoPerdido = false);
+      await _cargarPedido(salirSiNoExiste: false);
       return true;
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
-        _salirPorMesaNoEncontrada(e.message);
+        await _salirPorMesaNoEncontrada(e.message);
+        return false;
       } else if (e.statusCode == 409) {
         await _marcarBloqueoPerdido(mensaje: e.message);
         return false;
@@ -467,6 +494,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
     final api = context.read<ApiService>();
     final cashlogyOn = await CashlogyService.isEnabled();
+    if (!mounted) return;
     final confirmCtrl = TextEditingController();
 
     final ok = await showDialog<bool>(
@@ -537,7 +565,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       }
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
-        _salirPorMesaNoEncontrada(
+        await _salirPorMesaNoEncontrada(
           'La mesa ya no está activa (posiblemente cerrada).',
         );
       } else {
@@ -857,9 +885,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Widget _buildTotalesStrip(
       List<LineaPedido> lineas, CatalogoProvider catalogo) {
-    if (lineas.isEmpty) return const SizedBox.shrink();
     final t = _calcularTotales(lineas, catalogo);
-    if (t.total == 0) return const SizedBox.shrink();
     String fmt(double v) => '${v.toStringAsFixed(2)} €';
     return Container(
       color: const Color(0xFF1A2030),

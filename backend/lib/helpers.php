@@ -237,7 +237,25 @@ function adquirirBloqueoMesa(
             )'
     );
     $st->execute([$idUsuario, $terminalSerie, $idPedido, $terminalSerie, LOCK_TTL]);
-    return $st->rowCount() > 0;
+    if ($st->rowCount() > 0) {
+        return true;
+    }
+    // Tras abrir_mesa el bloqueo ya es de este terminal; un UPDATE inmediato puede
+    // no modificar filas (mismos valores) y rowCount() = 0 sin ser un conflicto.
+    $chk = $db->prepare(
+        'SELECT id_usuario_bloqueo, hora_bloqueo, terminal_serie_bloqueo
+           FROM pedido_cabecera WHERE id_pedido = ?'
+    );
+    $chk->execute([$idPedido]);
+    $row = $chk->fetch(PDO::FETCH_ASSOC);
+    if ($row === false || !terminalTieneBloqueoPedido($row, $terminalSerie)) {
+        return false;
+    }
+    $db->prepare(
+        'UPDATE pedido_cabecera SET hora_bloqueo = NOW()
+          WHERE id_pedido = ? AND terminal_serie_bloqueo = ?'
+    )->execute([$idPedido, $terminalSerie]);
+    return true;
 }
 
 /** Comprueba que el bloqueo quedó persistido en BD. */
