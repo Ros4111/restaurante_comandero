@@ -13,7 +13,22 @@ class CatalogoProvider extends ChangeNotifier {
 
   bool get loaded => categorias.isNotEmpty;
 
-  void notificarCambios() => notifyListeners();
+  Map<int, Producto> _productoPorId = {};
+  Map<int, String> _nombreNormPorId = {};
+  Map<int, String> _filtroNormPorId = {};
+  Map<int, List<Categoria>> _categoriasPorPadre = {};
+  Map<int, List<Producto>> _productosPorCategoria = {};
+  Map<int, List<GrupoOpciones>> _gruposPorProducto = {};
+  Map<(int, int), List<OpcionProducto>> _opcionesPorProductoGrupo = {};
+  Map<int, List<({OpcionProducto opcion, String nombreNorm})>>
+      _opcionesNoPredPorProducto = {};
+
+  Producto? productoPorId(int id) => _productoPorId[id];
+
+  void notificarCambios() {
+    _reconstruirIndices();
+    notifyListeners();
+  }
 
   void cargar(Map<String, dynamic> data) {
     categorias =
@@ -31,80 +46,140 @@ class CatalogoProvider extends ChangeNotifier {
             .map((j) => Impresora.fromJson(Map<String, dynamic>.from(j as Map)))
             .toList()
         : [];
+    _reconstruirIndices();
     notifyListeners();
   }
 
-  List<Categoria> categoriasHijo(int idPadre) =>
-      categorias.where((c) => c.idPadre == idPadre && c.disponible).toList()
+  void _reconstruirIndices() {
+    _productoPorId = {};
+    _nombreNormPorId = {};
+    _filtroNormPorId = {};
+    _categoriasPorPadre = {};
+    _productosPorCategoria = {};
+    _gruposPorProducto = {};
+    _opcionesPorProductoGrupo = {};
+    _opcionesNoPredPorProducto = {};
+
+    for (final p in productos) {
+      _productoPorId[p.id] = p;
+      _nombreNormPorId[p.id] =
+          normalizarTextoBusqueda(p.nombreProductoPantalla);
+      _filtroNormPorId[p.id] = normalizarTextoBusqueda(p.filtro);
+      if (p.disponible) {
+        (_productosPorCategoria[p.idCategoria] ??= []).add(p);
+      }
+    }
+    for (final lista in _productosPorCategoria.values) {
+      lista.sort(_cmpProducto);
+    }
+
+    for (final c in categorias) {
+      if (!c.disponible) continue;
+      (_categoriasPorPadre[c.idPadre] ??= []).add(c);
+    }
+    for (final lista in _categoriasPorPadre.values) {
+      lista.sort((a, b) => a.orden.compareTo(b.orden));
+    }
+
+    final gruposIdsPorProducto = <int, Set<int>>{};
+    for (final o in opciones) {
+      if (!o.disponible) continue;
+      final key = (o.idProducto, o.idGrupo);
+      (_opcionesPorProductoGrupo[key] ??= []).add(o);
+      if (!o.predeterminado) {
+        (_opcionesNoPredPorProducto[o.idProducto] ??= []).add(
+          (
+            opcion: o,
+            nombreNorm: normalizarTextoBusqueda(o.nombreOpcion),
+          ),
+        );
+      }
+      (gruposIdsPorProducto[o.idProducto] ??= {}).add(o.idGrupo);
+    }
+    for (final lista in _opcionesPorProductoGrupo.values) {
+      lista.sort(_cmpOpcion);
+    }
+    for (final lista in _opcionesNoPredPorProducto.values) {
+      lista.sort((a, b) => _cmpOpcion(a.opcion, b.opcion));
+    }
+    for (final entry in gruposIdsPorProducto.entries) {
+      final ids = entry.value;
+      _gruposPorProducto[entry.key] = grupos
+          .where((g) => ids.contains(g.id) && g.disponible)
+          .toList()
         ..sort((a, b) => a.orden.compareTo(b.orden));
+    }
+  }
 
-  List<Producto> productosDeCategoria(int idCategoria) => productos
-      .where((p) => p.idCategoria == idCategoria && p.disponible)
-      .toList()
-    ..sort((a, b) => a.orden.compareTo(b.orden));
+  static int _cmpProducto(Producto a, Producto b) {
+    final co = a.orden.compareTo(b.orden);
+    if (co != 0) return co;
+    return a.nombreProductoPantalla
+        .toLowerCase()
+        .compareTo(b.nombreProductoPantalla.toLowerCase());
+  }
 
-  List<Producto> productosPorBusquedaNombre(String texto) =>
-      _filtrarProductosPedido((p) {
-        final n = normalizarTextoBusqueda(texto.trim());
-        if (n.isEmpty) return false;
-        return normalizarTextoBusqueda(p.nombreProductoPantalla).contains(n);
-      }, requiereTexto: texto);
+  static int _cmpOpcion(OpcionProducto a, OpcionProducto b) {
+    final co = a.orden.compareTo(b.orden);
+    if (co != 0) return co;
+    return a.nombreOpcion.toLowerCase().compareTo(b.nombreOpcion.toLowerCase());
+  }
 
-  List<Producto> productosPorBusquedaFiltro(String filtro) =>
-      _filtrarProductosPedido((p) {
-        final n = normalizarTextoBusqueda(filtro.trim());
-        if (n.isEmpty) return false;
-        return normalizarTextoBusqueda(p.filtro).contains(n);
-      }, requiereTexto: filtro);
+  List<Categoria> categoriasHijo(int idPadre) =>
+      _categoriasPorPadre[idPadre] ?? const [];
+
+  List<Producto> productosDeCategoria(int idCategoria) =>
+      _productosPorCategoria[idCategoria] ?? const [];
+
+  List<Producto> productosPorBusquedaNombre(String texto) {
+    final n = normalizarTextoBusqueda(texto.trim());
+    if (n.isEmpty) return const [];
+    return _filtrarProductosPedido(
+        (p) => (_nombreNormPorId[p.id] ?? '').contains(n));
+  }
+
+  List<Producto> productosPorBusquedaFiltro(String filtro) {
+    final n = normalizarTextoBusqueda(filtro.trim());
+    if (n.isEmpty) return const [];
+    return _filtrarProductosPedido(
+        (p) => (_filtroNormPorId[p.id] ?? '').contains(n));
+  }
 
   /// `mm` + filtro + tokens: filtro y cada token en opción no predeterminada.
   List<Producto> productosPorBusquedaFiltroOpciones(
       String filtro, List<String> tokensOpcion) {
-    final f = filtro.trim();
-    final tokens = tokensOpcion
-        .map((t) => t.trim())
+    final nf = normalizarTextoBusqueda(filtro.trim());
+    final tokensNorm = tokensOpcion
+        .map((t) => normalizarTextoBusqueda(t.trim()))
         .where((t) => t.isNotEmpty)
         .toList();
-    if (f.isEmpty || tokens.isEmpty) return [];
+    if (nf.isEmpty || tokensNorm.isEmpty) return const [];
     return _filtrarProductosPedido((p) {
-      final nf = normalizarTextoBusqueda(f);
-      if (nf.isEmpty) return false;
-      if (!normalizarTextoBusqueda(p.filtro).contains(nf)) return false;
-      for (final token in tokens) {
+      if (!(_filtroNormPorId[p.id] ?? '').contains(nf)) return false;
+      for (final token in tokensNorm) {
         if (!_productoTieneOpcionNoPredeterminada(p.id, token)) return false;
       }
       return true;
     });
   }
 
-  bool _productoTieneOpcionNoPredeterminada(int idProducto, String token) {
-    final n = normalizarTextoBusqueda(token);
-    if (n.isEmpty) return false;
-    for (final o in opciones) {
-      if (o.idProducto != idProducto || !o.disponible || o.predeterminado) {
-        continue;
-      }
-      if (normalizarTextoBusqueda(o.nombreOpcion).contains(n)) return true;
+  bool _productoTieneOpcionNoPredeterminada(int idProducto, String tokenNorm) {
+    final lista = _opcionesNoPredPorProducto[idProducto];
+    if (lista == null) return false;
+    for (final e in lista) {
+      if (e.nombreNorm.contains(tokenNorm)) return true;
     }
     return false;
   }
 
-  List<Producto> _filtrarProductosPedido(bool Function(Producto) coincide,
-      {String? requiereTexto}) {
-    if (requiereTexto != null && requiereTexto.trim().isEmpty) return [];
+  List<Producto> _filtrarProductosPedido(bool Function(Producto) coincide) {
     final out = <Producto>[];
     for (final p in productos) {
       if (!p.disponible) continue;
       if (!coincide(p)) continue;
       out.add(p);
     }
-    out.sort((a, b) {
-      final co = a.orden.compareTo(b.orden);
-      if (co != 0) return co;
-      return a.nombreProductoPantalla
-          .toLowerCase()
-          .compareTo(b.nombreProductoPantalla.toLowerCase());
-    });
+    out.sort(_cmpProducto);
     return out;
   }
 
@@ -124,24 +199,15 @@ class CatalogoProvider extends ChangeNotifier {
       }
     }
 
+    final candidatasIndex = _opcionesNoPredPorProducto[p.id] ?? const [];
     final gruposUsados = <int>{};
     for (final raw in tokens) {
       final n = normalizarTextoBusqueda(raw.trim());
       if (n.isEmpty) continue;
-      final candidatas = opciones
-          .where((o) =>
-              o.idProducto == p.id &&
-              o.disponible &&
-              !o.predeterminado &&
-              normalizarTextoBusqueda(o.nombreOpcion).contains(n))
-          .toList()
-        ..sort((a, b) {
-          final go = a.orden.compareTo(b.orden);
-          if (go != 0) return go;
-          return a.nombreOpcion
-              .toLowerCase()
-              .compareTo(b.nombreOpcion.toLowerCase());
-        });
+      final candidatas = candidatasIndex
+          .where((e) => e.nombreNorm.contains(n))
+          .map((e) => e.opcion)
+          .toList();
       if (candidatas.isEmpty) continue;
 
       OpcionProducto? elegida;
@@ -161,20 +227,11 @@ class CatalogoProvider extends ChangeNotifier {
     return out;
   }
 
-  List<GrupoOpciones> gruposDeProducto(int idProducto) {
-    final idsGrupo = opciones
-        .where((o) => o.idProducto == idProducto && o.disponible)
-        .map((o) => o.idGrupo)
-        .toSet();
-    return grupos.where((g) => idsGrupo.contains(g.id) && g.disponible).toList()
-      ..sort((a, b) => a.orden.compareTo(b.orden));
-  }
+  List<GrupoOpciones> gruposDeProducto(int idProducto) =>
+      _gruposPorProducto[idProducto] ?? const [];
 
-  List<OpcionProducto> opcionesDeGrupo(int idProducto, int idGrupo) => opciones
-      .where((o) =>
-          o.idProducto == idProducto && o.idGrupo == idGrupo && o.disponible)
-      .toList()
-    ..sort((a, b) => a.orden.compareTo(b.orden));
+  List<OpcionProducto> opcionesDeGrupo(int idProducto, int idGrupo) =>
+      _opcionesPorProductoGrupo[(idProducto, idGrupo)] ?? const [];
 
   OpcionProducto? opcionPorNombre(int idProducto, int idGrupo, String nombre) {
     for (final o in opcionesDeGrupo(idProducto, idGrupo)) {

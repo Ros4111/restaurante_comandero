@@ -50,7 +50,7 @@ class CatalogoPanelState extends State<CatalogoPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final catalogo = context.watch<CatalogoProvider>();
+    final catalogo = context.read<CatalogoProvider>();
     if (!catalogo.loaded) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -99,6 +99,9 @@ class CatalogoPanelState extends State<CatalogoPanel> {
     final showHeader = hayAtras || modoBusqueda;
     final showManual =
         !modoBusqueda && !hayAtras && widget.onManual != null;
+    final showEmpty = modoBusqueda && prods.isEmpty;
+    final itemCount =
+        (showEmpty ? 1 : 0) + subcats.length + prods.length + (showManual ? 1 : 0);
 
     return Column(
       children: [
@@ -144,54 +147,62 @@ class CatalogoPanelState extends State<CatalogoPanel> {
             ),
           ),
         Expanded(
-          child: ListView(
+          child: ListView.builder(
             padding: EdgeInsets.zero,
-            children: [
-              if (modoBusqueda && prods.isEmpty)
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-                  child: Text(
-                    widget.busqueda.modo == ModoBusquedaCatalogoPedido.porFiltro &&
-                            widget.busqueda.filtro.trim().isEmpty
-                        ? 'Escribe después de mm el texto del campo filtro (ej. mmCL)'
-                        : widget.busqueda.modo ==
-                                ModoBusquedaCatalogoPedido.porFiltroOpciones
-                            ? 'No hay producto con ese filtro y opciones'
-                            : 'No hay coincidencias',
-                    style: const TextStyle(
-                        color: AppTheme.colorTextoGris, fontSize: 15),
-                  ),
-                ),
-              // Subcategorías — sin icono, sin padding extra
-              ...subcats.asMap().entries.map(
-                    (entry) => _CatTile(
-                      cat: entry.value,
-                      onTap: () => _push(entry.value),
-                      backgroundColor: entry.key.isEven
-                          ? AppTheme.colorTarjeta
-                          : AppTheme.colorSuperficie,
+            itemCount: itemCount,
+            itemBuilder: (context, index) {
+              if (showEmpty) {
+                if (index == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 24),
+                    child: Text(
+                      widget.busqueda.modo ==
+                                  ModoBusquedaCatalogoPedido.porFiltro &&
+                              widget.busqueda.filtro.trim().isEmpty
+                          ? 'Escribe después de mm el texto del campo filtro (ej. mmCL)'
+                          : widget.busqueda.modo ==
+                                  ModoBusquedaCatalogoPedido.porFiltroOpciones
+                              ? 'No hay producto con ese filtro y opciones'
+                              : 'No hay coincidencias',
+                      style: const TextStyle(
+                          color: AppTheme.colorTextoGris, fontSize: 15),
                     ),
-                  ),
-              // Productos
-              ...prods.asMap().entries.map(
-                    (entry) => _ProdTile(
-                      p: entry.value,
-                      onTap: () => widget.onTap(entry.value),
-                      onLongPress: () => widget.onLongPress(entry.value),
-                      backgroundColor: (subcats.length + entry.key).isEven
-                          ? AppTheme.colorTarjeta
-                          : AppTheme.colorSuperficie,
-                    ),
-                  ),
-              if (showManual)
-                _ManualTile(
-                  onTap: widget.onManual!,
-                  backgroundColor: (subcats.length + prods.length).isEven
+                  );
+                }
+                index -= 1;
+              }
+
+              if (index < subcats.length) {
+                return _CatTile(
+                  cat: subcats[index],
+                  onTap: () => _push(subcats[index]),
+                  backgroundColor: index.isEven
                       ? AppTheme.colorTarjeta
                       : AppTheme.colorSuperficie,
-                ),
-            ],
+                );
+              }
+              index -= subcats.length;
+
+              if (index < prods.length) {
+                final bgIndex = subcats.length + index;
+                return _ProdTile(
+                  p: prods[index],
+                  onTap: () => widget.onTap(prods[index]),
+                  onLongPress: () => widget.onLongPress(prods[index]),
+                  backgroundColor: bgIndex.isEven
+                      ? AppTheme.colorTarjeta
+                      : AppTheme.colorSuperficie,
+                );
+              }
+
+              return _ManualTile(
+                onTap: widget.onManual!,
+                backgroundColor: (subcats.length + prods.length).isEven
+                    ? AppTheme.colorTarjeta
+                    : AppTheme.colorSuperficie,
+              );
+            },
           ),
         ),
       ],

@@ -86,7 +86,7 @@ class _LineasPanelState extends State<LineasPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final catalogo = context.watch<CatalogoProvider>();
+    final catalogo = context.read<CatalogoProvider>();
     final hayLineas = widget.lineas.isNotEmpty;
 
     Widget body;

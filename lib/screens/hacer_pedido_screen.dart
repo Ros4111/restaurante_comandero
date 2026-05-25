@@ -52,7 +52,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
-  final TextEditingController _buscarCatalogoCtrl = TextEditingController();
+  Timer? _debounceCliente;
 
   @override
   void initState() {
@@ -85,12 +85,27 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   @override
   void dispose() {
     _pingTimer?.cancel();
+    _debounceCliente?.cancel();
+    _syncNombreCliente();
     if (widget.bloqueadoPorMi && _salidaExplicita) {
       _api.desbloquearMesa(widget.idPedido).ignore();
     }
     _clienteCtrl.dispose();
-    _buscarCatalogoCtrl.dispose();
     super.dispose();
+  }
+
+  void _syncNombreCliente() {
+    _debounceCliente?.cancel();
+    _debounceCliente = null;
+    if (!mounted) return;
+    context.read<MesaProvider>().setNombreCliente(_clienteCtrl.text);
+  }
+
+  void _onClienteChanged(String v) {
+    _debounceCliente?.cancel();
+    _debounceCliente = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _syncNombreCliente();
+    });
   }
 
   Future<void> _cargarPedido() async {
@@ -322,6 +337,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Future<bool> _guardar({bool imprimir = true}) async {
     if (_guardando) return false;
+    _syncNombreCliente();
     final api = context.read<ApiService>();
     final catalogo = context.read<CatalogoProvider>();
     final mesaPv = context.read<MesaProvider>();
@@ -596,9 +612,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   // ── Añadir producto ────────────────────────────────────────
-  void onProductoTap(Producto p) {
-    final busq =
-        interpretarCampoBusquedaCatalogoMm(_buscarCatalogoCtrl.text);
+  void onProductoTap(Producto p, BusquedaCatalogoPedido busq) {
     final catalogo = context.read<CatalogoProvider>();
     final opciones =
         busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones &&
@@ -804,8 +818,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     double iva = 0;
     double totalTtc = 0;
     for (final linea in lineas) {
-      final producto =
-          catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
+      final producto = catalogo.productoPorId(linea.idProducto);
       if (producto == null) continue;
       final supl = <double>[];
       for (final entry in linea.opcionesElegidas.entries) {
@@ -873,13 +886,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       );
     }
 
-    final api = context.watch<ApiService>();
     final mesaPv = context.watch<MesaProvider>();
-    final sesion = context.watch<SesionProvider>();
-    final catalogo = context.watch<CatalogoProvider>();
-
-    final busq =
-        interpretarCampoBusquedaCatalogoMm(_buscarCatalogoCtrl.text);
+    final sesion = context.read<SesionProvider>();
+    final offline = _offline || !context.select<ApiService, bool>((a) => a.serverReachable);
 
     final puedeSalir = mesaPv.soloLectura || _bloqueoPerdido;
 
@@ -920,8 +929,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                   cursorColor: Colors.white,
                   textCapitalization: TextCapitalization.words,
                   maxLength: 120,
-                  onChanged: (v) =>
-                      context.read<MesaProvider>().setNombreCliente(v),
+                  onChanged: _onClienteChanged,
                   decoration: InputDecoration(
                     isDense: true,
                     counterText: '',
@@ -989,13 +997,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 ),
             ],
           ],
-          bottom: (_offline || !api.serverReachable)
+          bottom: offline
               ? PreferredSize(
                   preferredSize: const Size.fromHeight(28),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_offline || !api.serverReachable)
+                      if (_offline || !context.read<ApiService>().serverReachable)
                         Container(
                           color: Colors.red[900],
                           width: double.infinity,
@@ -1027,7 +1035,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
-                  _buildTotalesStrip(mesaPv.lineas, catalogo),
+                  Selector<MesaProvider, List<LineaPedido>>(
+                    selector: (_, m) => m.lineas,
+                    builder: (context, lineas, _) => _buildTotalesStrip(
+                      lineas,
+                      context.read<CatalogoProvider>(),
+                    ),
+                  ),
                   Expanded(
                     child: Row(
                       children: [
@@ -1040,104 +1054,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                                       style: TextStyle(
                                           color: AppTheme.colorTextoGris,
                                           fontSize: 18)))
-                              : Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 8, 12, 6),
-                                      child: TextField(
-                                        controller: _buscarCatalogoCtrl,
-                                        onChanged: (_) => setState(() {}),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15,
-                                          height: 1.2,
-                                        ),
-                                        cursorColor: Colors.white,
-                                        decoration: InputDecoration(
-                                          isDense: true,
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                  horizontal: 10, vertical: 10),
-                                          hintText:
-                                              'Nombre · mm+código · mm+código opción…',
-                                          hintStyle: const TextStyle(
-                                            color: Colors.white38,
-                                            fontSize: 13,
-                                            height: 1.2,
-                                          ),
-                                          filled: true,
-                                          fillColor: Colors.black26,
-                                          border: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          prefixIcon: Icon(
-                                            busq.modo ==
-                                                    ModoBusquedaCatalogoPedido
-                                                        .porFiltroOpciones
-                                                ? Icons.tune
-                                                : busq.modo ==
-                                                        ModoBusquedaCatalogoPedido
-                                                            .porFiltro
-                                                    ? Icons.tag
-                                                    : Icons.search,
-                                            size: 20,
-                                            color: busq.modo ==
-                                                        ModoBusquedaCatalogoPedido
-                                                            .porFiltro ||
-                                                    busq.modo ==
-                                                        ModoBusquedaCatalogoPedido
-                                                            .porFiltroOpciones
-                                                ? AppTheme.colorPrimario
-                                                : Colors.white54,
-                                          ),
-                                          prefixIconConstraints:
-                                              const BoxConstraints(
-                                            minWidth: 0,
-                                            minHeight: 0,
-                                          ),
-                                          suffixIcon: busq.activa
-                                              ? IconButton(
-                                                  tooltip: 'Limpiar',
-                                                  icon: const Icon(
-                                                    Icons.clear,
-                                                    size: 18,
-                                                  ),
-                                                  padding: EdgeInsets.zero,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                    minWidth: 0,
-                                                    minHeight: 0,
-                                                  ),
-                                                  onPressed: () {
-                                                    _buscarCatalogoCtrl.clear();
-                                                    setState(() {});
-                                                  },
-                                                )
-                                              : null,
-                                          suffixIconConstraints:
-                                              const BoxConstraints(
-                                            minWidth: 0,
-                                            minHeight: 0,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: CatalogoPanel(
-                                        key: _catalogoKey,
-                                        onTap: onProductoTap,
-                                        onLongPress: onProductoLongPress,
-                                        busquedaActiva: busq.activa,
-                                        busqueda: busq,
-                                        onManual: _abrirNotaLibre,
-                                      ),
-                                    ),
-                                  ],
+                              : _ColumnaCatalogoPedido(
+                                  catalogoKey: _catalogoKey,
+                                  onProductoTap: onProductoTap,
+                                  onProductoLongPress: onProductoLongPress,
+                                  onManual: _abrirNotaLibre,
                                 ),
                         ),
                         const VerticalDivider(
@@ -1157,6 +1078,144 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                 ],
               ),
       ),
+    );
+  }
+}
+
+// ── Columna catálogo: búsqueda aislada (no rebuild de toda la pantalla) ───────
+
+class _ColumnaCatalogoPedido extends StatefulWidget {
+  final GlobalKey<CatalogoPanelState> catalogoKey;
+  final void Function(Producto p, BusquedaCatalogoPedido busq) onProductoTap;
+  final void Function(Producto p) onProductoLongPress;
+  final VoidCallback onManual;
+
+  const _ColumnaCatalogoPedido({
+    required this.catalogoKey,
+    required this.onProductoTap,
+    required this.onProductoLongPress,
+    required this.onManual,
+  });
+
+  @override
+  State<_ColumnaCatalogoPedido> createState() => _ColumnaCatalogoPedidoState();
+}
+
+class _ColumnaCatalogoPedidoState extends State<_ColumnaCatalogoPedido> {
+  final TextEditingController _buscarCtrl = TextEditingController();
+  Timer? _debounceBuscar;
+  BusquedaCatalogoPedido _busqUi = kBusquedaCatalogoPedidoInactiva;
+  BusquedaCatalogoPedido _busqFiltrado = kBusquedaCatalogoPedidoInactiva;
+
+  @override
+  void dispose() {
+    _debounceBuscar?.cancel();
+    _buscarCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onBuscarChanged(String raw) {
+    setState(() => _busqUi = interpretarCampoBusquedaCatalogoMm(raw));
+    _debounceBuscar?.cancel();
+    _debounceBuscar = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      setState(() {
+        _busqFiltrado =
+            interpretarCampoBusquedaCatalogoMm(_buscarCtrl.text);
+      });
+    });
+  }
+
+  void _limpiarBusqueda() {
+    _debounceBuscar?.cancel();
+    _buscarCtrl.clear();
+    setState(() {
+      _busqUi = kBusquedaCatalogoPedidoInactiva;
+      _busqFiltrado = kBusquedaCatalogoPedidoInactiva;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final busq = _busqUi;
+    final busqLista = _busqFiltrado;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+          child: TextField(
+            controller: _buscarCtrl,
+            onChanged: _onBuscarChanged,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              height: 1.2,
+            ),
+            cursorColor: Colors.white,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              hintText: 'Nombre · mm+código · mm+código opción…',
+              hintStyle: const TextStyle(
+                color: Colors.white38,
+                fontSize: 13,
+                height: 1.2,
+              ),
+              filled: true,
+              fillColor: Colors.black26,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+              prefixIcon: Icon(
+                busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones
+                    ? Icons.tune
+                    : busq.modo == ModoBusquedaCatalogoPedido.porFiltro
+                        ? Icons.tag
+                        : Icons.search,
+                size: 20,
+                color: busq.modo == ModoBusquedaCatalogoPedido.porFiltro ||
+                        busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones
+                    ? AppTheme.colorPrimario
+                    : Colors.white54,
+              ),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+              suffixIcon: busq.activa
+                  ? IconButton(
+                      tooltip: 'Limpiar',
+                      icon: const Icon(Icons.clear, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 0,
+                        minHeight: 0,
+                      ),
+                      onPressed: _limpiarBusqueda,
+                    )
+                  : null,
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: CatalogoPanel(
+            key: widget.catalogoKey,
+            onTap: (p) => widget.onProductoTap(p, busqLista),
+            onLongPress: widget.onProductoLongPress,
+            busquedaActiva: busqLista.activa,
+            busqueda: busqLista,
+            onManual: widget.onManual,
+          ),
+        ),
+      ],
     );
   }
 }
