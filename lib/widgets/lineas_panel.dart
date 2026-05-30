@@ -37,12 +37,16 @@ class LineasPanel extends StatefulWidget {
   final List<LineaPedido> lineas;
   final bool soloLectura;
   final void Function(LineaPedido) onLineaTap;
+  final void Function(LineaPedido) onLineaIncrement;
+  final void Function(LineaPedido) onLineaDecrement;
 
   const LineasPanel({
     super.key,
     required this.lineas,
     required this.soloLectura,
     required this.onLineaTap,
+    required this.onLineaIncrement,
+    required this.onLineaDecrement,
   });
 
   @override
@@ -52,6 +56,7 @@ class LineasPanel extends StatefulWidget {
 class _LineasPanelState extends State<LineasPanel> {
   late final ScrollController _scrollController;
   late int _lastLineCount;
+  int? _indiceSeleccionado;
 
   @override
   void initState() {
@@ -60,9 +65,24 @@ class _LineasPanelState extends State<LineasPanel> {
     _lastLineCount = widget.lineas.length;
   }
 
+  void _seleccionar(int index) {
+    if (widget.soloLectura) return;
+    setState(() => _indiceSeleccionado = index);
+  }
+
+  void _deseleccionarSiLineaEliminada() {
+    final i = _indiceSeleccionado;
+    if (i == null) return;
+    if (i >= widget.lineas.length) {
+      _indiceSeleccionado = null;
+      return;
+    }
+  }
+
   @override
   void didUpdateWidget(covariant LineasPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _deseleccionarSiLineaEliminada();
     final currentCount = widget.lineas.length;
     final seAnadioLinea = currentCount > _lastLineCount;
     _lastLineCount = currentCount;
@@ -86,7 +106,8 @@ class _LineasPanelState extends State<LineasPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final catalogo = context.read<CatalogoProvider>();
+    final catalogo = context.watch<CatalogoProvider>();
+    // Solo si el catálogo puede cambiar durante el pedido
     final hayLineas = widget.lineas.isNotEmpty;
 
     Widget body;
@@ -106,7 +127,16 @@ class _LineasPanelState extends State<LineasPanel> {
             linea: l,
             catalogo: catalogo,
             soloLectura: widget.soloLectura,
+            seleccionada: _indiceSeleccionado == i,
+            onTap: () => _seleccionar(i),
             onLongPress: () => widget.onLineaTap(l),
+            onIncrement: () => widget.onLineaIncrement(l),
+            onDecrement: () {
+              widget.onLineaDecrement(l);
+              if (l.esNuevo && l.cantidad <= 1) {
+                setState(() => _indiceSeleccionado = null);
+              }
+            },
             backgroundColor:
                 i.isEven ? AppTheme.colorTarjeta : AppTheme.colorSuperficie,
           );
@@ -122,14 +152,22 @@ class _LineaTile extends StatelessWidget {
   final LineaPedido linea;
   final CatalogoProvider catalogo;
   final bool soloLectura;
+  final bool seleccionada;
+  final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final VoidCallback onIncrement;
+  final VoidCallback onDecrement;
   final Color backgroundColor;
 
   const _LineaTile({
     required this.linea,
     required this.catalogo,
     required this.soloLectura,
+    required this.seleccionada,
+    required this.onTap,
     required this.onLongPress,
+    required this.onIncrement,
+    required this.onDecrement,
     required this.backgroundColor,
   });
 
@@ -143,13 +181,23 @@ class _LineaTile extends StatelessWidget {
         : (esNuevo ? AppTheme.colorLineasNuevas : AppTheme.colorLineasViejas);
     final notaColor = esNota ? Colors.amber[300]! : color;
 
+    final mostrarControles = seleccionada && !soloLectura;
+    final cantidadEnControles = mostrarControles && esNuevo;
+    final mostrarCantidad =
+        linea.cantidad > 1 && !cantidadEnControles;
+
     return GestureDetector(
+      onTap: soloLectura ? null : onTap,
       onLongPress: soloLectura ? null : onLongPress,
       child: Container(
         decoration: BoxDecoration(
           color: backgroundColor,
-          border:
-              const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
+          border: Border(
+            bottom: const BorderSide(color: Colors.black26, width: 1),
+            left: seleccionada
+                ? BorderSide(color: AppTheme.colorPrimario, width: 3)
+                : BorderSide.none,
+          ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Column(
@@ -158,8 +206,7 @@ class _LineaTile extends StatelessWidget {
             Row(
               children: [
                 if (esNota) ...[
-                  Icon(Icons.edit_note,
-                      size: 15, color: Colors.amber[300]),
+                  Icon(Icons.edit_note, size: 15, color: Colors.amber[300]),
                   const SizedBox(width: 4),
                 ],
                 Expanded(
@@ -171,12 +218,11 @@ class _LineaTile extends StatelessWidget {
                       color: notaColor,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      fontStyle:
-                          esNota ? FontStyle.italic : FontStyle.normal,
+                      fontStyle: esNota ? FontStyle.italic : FontStyle.normal,
                     ),
                   ),
                 ),
-                if (linea.cantidad > 1) ...[
+                if (mostrarCantidad) ...[
                   const SizedBox(width: 8),
                   Text(
                     '${linea.cantidad}x',
@@ -184,6 +230,32 @@ class _LineaTile extends StatelessWidget {
                         color: notaColor,
                         fontWeight: FontWeight.bold,
                         fontSize: 16),
+                  ),
+                ],
+                if (mostrarControles && esNuevo) ...[
+                  _CantidadBoton(
+                    icon: Icons.remove,
+                    onPressed: onDecrement,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(
+                      '${linea.cantidad}',
+                      style: TextStyle(
+                        color: notaColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                  _CantidadBoton(
+                    icon: Icons.add,
+                    onPressed: onIncrement,
+                  ),
+                ] else if (mostrarControles && !esNuevo) ...[
+                  _CantidadBoton(
+                    icon: Icons.add,
+                    onPressed: onIncrement,
                   ),
                 ],
                 // Mostrar precio para notas libres con precio
@@ -233,6 +305,32 @@ class _LineaTile extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CantidadBoton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _CantidadBoton({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.colorPrimario.withValues(alpha: 0.25),
+      borderRadius: BorderRadius.circular(6),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(icon, size: 20, color: AppTheme.colorPrimario),
         ),
       ),
     );

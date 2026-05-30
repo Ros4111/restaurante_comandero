@@ -43,16 +43,22 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   bool _offline = false;
   bool _cargandoPedido = true;
   bool _pantallaLista = false;
+
   /// Bloqueo expirado (3 min) u otro terminal con la mesa.
   bool _bloqueoPerdido = false;
+
   /// Solo desbloquear en servidor al pulsar Salir (no en dispose).
   bool _salidaExplicita = false;
+
   /// Marca la primera pulsacion de la flecha atras en el nivel raiz del catalogo.
   DateTime? _primeraPresionFlechaAtras;
   final GlobalKey<CatalogoPanelState> _catalogoKey =
       GlobalKey<CatalogoPanelState>();
   final TextEditingController _clienteCtrl = TextEditingController();
   Timer? _debounceCliente;
+
+  /// Línea nueva creada al pulsar + sobre una línea guardada (id_linea → índice en [MesaProvider.lineas]).
+  final Map<int, int> _duplicadaIndexPorLineaOriginal = {};
 
   @override
   void initState() {
@@ -76,8 +82,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           // No pasar a solo lectura al entrar: confiar en el bloqueo de mesas_screen.
         }
       } catch (_) {}
-      _pingTimer =
-          Timer.periodic(const Duration(seconds: 60), (_) => _ping());
+      _pingTimer = Timer.periodic(const Duration(seconds: 60), (_) => _ping());
     }
     await _cargarPedido();
   }
@@ -86,7 +91,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   void dispose() {
     _pingTimer?.cancel();
     _debounceCliente?.cancel();
-    _syncNombreCliente();
+    // Ya NO llamamos _syncNombreCliente() aquí porque usa context
+    // El valor ya está guardado en _nombreClienteLocal por cada onChange
     if (widget.bloqueadoPorMi && _salidaExplicita) {
       _api.desbloquearMesa(widget.idPedido).ignore();
     }
@@ -127,6 +133,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         _cargandoPedido = false;
         _pantallaLista = true;
       });
+      _duplicadaIndexPorLineaOriginal.clear();
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
         if (salirSiNoExiste) {
@@ -257,8 +264,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       builder: (_) => AlertDialog(
         backgroundColor: AppTheme.colorTarjeta,
         title: const Text('Salir sin guardar?'),
-        content: const Text(
-            'Hay cambios sin guardar. Si sales ahora se perderan.'),
+        content:
+            const Text('Hay cambios sin guardar. Si sales ahora se perderan.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -266,8 +273,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
             child: const Text('Salir sin guardar'),
           ),
         ],
@@ -413,8 +419,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       final pedidoBorrado = mesaPv.lineas.isEmpty;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                pedidoBorrado ? '✓ Pedido borrado' : '✓ Pedido guardado'),
+            content:
+                Text(pedidoBorrado ? '✓ Pedido borrado' : '✓ Pedido guardado'),
             backgroundColor: Colors.green));
       }
 
@@ -645,8 +651,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final opciones =
         busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones &&
                 busq.tokensOpcion.isNotEmpty
-            ? catalogo.opcionesElegidasConTokensBusqueda(
-                p, busq.tokensOpcion)
+            ? catalogo.opcionesElegidasConTokensBusqueda(p, busq.tokensOpcion)
             : _defaultOpciones(p);
     _addProducto(p, cantidad: 1, comentario: '', opciones: opciones);
   }
@@ -746,7 +751,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     );
     if (!mounted || result == null) return;
     if (result['accion'] == 'eliminar') {
-      mesaPv.eliminarLinea(linea);
+      _eliminarLineaPedido(mesaPv, linea);
       return;
     }
     if (result['accion'] == 'guardar') {
@@ -802,7 +807,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     );
     if (result == null) return;
     if (result['accion'] == 'eliminar') {
-      mesaPv.eliminarLinea(linea);
+      _eliminarLineaPedido(mesaPv, linea);
     } else if (result['accion'] == 'mover') {
       mesaPv.modificarLinea(linea, moverAMesa: result['mesa_destino']);
     } else {
@@ -820,6 +825,89 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           comentario: nuevoComentario,
           opcionesElegidas: nuevasOpciones,
           marcarEditada: hayCambios);
+    }
+  }
+
+  void onLineaIncrement(LineaPedido linea) {
+    final mesaPv = context.read<MesaProvider>();
+    if (!_puedeEditar(mesaPv)) return;
+
+    if (linea.esNuevo) {
+      mesaPv.modificarLinea(linea, cantidad: linea.cantidad + 1);
+      return;
+    }
+
+    final idOriginal = linea.idLinea;
+    if (idOriginal != null) {
+      final duplicada = _duplicadaSesionDe(mesaPv, linea);
+      if (duplicada != null) {
+        mesaPv.modificarLinea(duplicada, cantidad: duplicada.cantidad + 1);
+        return;
+      }
+    }
+
+    mesaPv.agregarLinea(LineaPedido(
+      idProducto: linea.idProducto,
+      cantidad: 1,
+      comentario: linea.comentario,
+      nombreProducto: linea.nombreProducto,
+      opcionesElegidas: Map<int, OpcionElegida>.from(linea.opcionesElegidas),
+      textoImprimirBarraCocina: linea.textoImprimirBarraCocina,
+      orden: 0,
+      pvpAlmacenado: linea.pvpAlmacenado,
+    ));
+    if (idOriginal != null) {
+      _duplicadaIndexPorLineaOriginal[idOriginal] = mesaPv.lineas.length - 1;
+    }
+  }
+
+  /// Línea de esta sesión duplicada desde [original] (mismo producto, opciones y comentario).
+  LineaPedido? _duplicadaSesionDe(MesaProvider mesaPv, LineaPedido original) {
+    final idOriginal = original.idLinea;
+    if (idOriginal == null) return null;
+
+    final idxCache = _duplicadaIndexPorLineaOriginal[idOriginal];
+    if (idxCache != null && idxCache >= 0 && idxCache < mesaPv.lineas.length) {
+      final candidata = mesaPv.lineas[idxCache];
+      if (candidata.esNuevo && _esCopiaSesionActual(candidata, original)) {
+        return candidata;
+      }
+    }
+
+    _duplicadaIndexPorLineaOriginal.remove(idOriginal);
+    return null;
+  }
+
+  void _ajustarIndicesDuplicadaTrasEliminar(int indiceEliminado) {
+    for (final entry in _duplicadaIndexPorLineaOriginal.entries.toList()) {
+      if (entry.value == indiceEliminado) {
+        _duplicadaIndexPorLineaOriginal.remove(entry.key);
+      } else if (entry.value > indiceEliminado) {
+        _duplicadaIndexPorLineaOriginal[entry.key] = entry.value - 1;
+      }
+    }
+  }
+
+  void _eliminarLineaPedido(MesaProvider mesaPv, LineaPedido linea) {
+    final idx = mesaPv.lineas.indexOf(linea);
+    if (idx < 0) return;
+    mesaPv.eliminarLinea(linea);
+    _ajustarIndicesDuplicadaTrasEliminar(idx);
+  }
+
+  bool _esCopiaSesionActual(LineaPedido copia, LineaPedido original) =>
+      copia.idProducto == original.idProducto &&
+      copia.comentario == original.comentario &&
+      _opcionesIguales(copia.opcionesElegidas, original.opcionesElegidas);
+
+  void onLineaDecrement(LineaPedido linea) {
+    final mesaPv = context.read<MesaProvider>();
+    if (!_puedeEditar(mesaPv) || !linea.esNuevo) return;
+
+    if (linea.cantidad > 1) {
+      mesaPv.modificarLinea(linea, cantidad: linea.cantidad - 1);
+    } else {
+      _eliminarLineaPedido(mesaPv, linea);
     }
   }
 
@@ -897,8 +985,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           const SizedBox(width: 10),
           _TotalChip(label: 'IVA', valor: fmt(t.iva)),
           const SizedBox(width: 10),
-          _TotalChip(
-              label: 'Total', valor: fmt(t.total), destacado: true),
+          _TotalChip(label: 'Total', valor: fmt(t.total), destacado: true),
         ],
       ),
     );
@@ -914,7 +1001,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
     final mesaPv = context.watch<MesaProvider>();
     final sesion = context.read<SesionProvider>();
-    final offline = _offline || !context.select<ApiService, bool>((a) => a.serverReachable);
+    final offline =
+        _offline || !context.select<ApiService, bool>((a) => a.serverReachable);
 
     final puedeSalir = mesaPv.soloLectura || _bloqueoPerdido;
 
@@ -1012,8 +1100,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                       MaterialPageRoute<void>(
                         builder: (_) => RepartoComensalesScreen(
                           idMesa: widget.idMesa,
-                          lineasPedido:
-                              List<LineaPedido>.from(mesaPv.lineas),
+                          lineasPedido: List<LineaPedido>.from(mesaPv.lineas),
                         ),
                       ),
                     );
@@ -1029,7 +1116,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_offline || !context.read<ApiService>().serverReachable)
+                      if (_offline ||
+                          !context.read<ApiService>().serverReachable)
                         Container(
                           color: Colors.red[900],
                           width: double.infinity,
@@ -1096,6 +1184,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                             lineas: mesaPv.lineas,
                             soloLectura: mesaPv.soloLectura,
                             onLineaTap: onLineaTap,
+                            onLineaIncrement: onLineaIncrement,
+                            onLineaDecrement: onLineaDecrement,
                           ),
                         ),
                       ],
@@ -1146,8 +1236,7 @@ class _ColumnaCatalogoPedidoState extends State<_ColumnaCatalogoPedido> {
     _debounceBuscar = Timer(const Duration(milliseconds: 150), () {
       if (!mounted) return;
       setState(() {
-        _busqFiltrado =
-            interpretarCampoBusquedaCatalogoMm(_buscarCtrl.text);
+        _busqFiltrado = interpretarCampoBusquedaCatalogoMm(_buscarCtrl.text);
       });
     });
   }
@@ -1204,7 +1293,8 @@ class _ColumnaCatalogoPedidoState extends State<_ColumnaCatalogoPedido> {
                         : Icons.search,
                 size: 20,
                 color: busq.modo == ModoBusquedaCatalogoPedido.porFiltro ||
-                        busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones
+                        busq.modo ==
+                            ModoBusquedaCatalogoPedido.porFiltroOpciones
                     ? AppTheme.colorPrimario
                     : Colors.white54,
               ),
@@ -1304,7 +1394,8 @@ class _NotaLibreDialogState extends State<_NotaLibreDialog> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final dialogWidth = (screenWidth - 32).clamp(0.0, 480.0);
-    final hInset = ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
+    final hInset =
+        ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
 
     return AlertDialog(
       backgroundColor: AppTheme.colorTarjeta,
@@ -1332,22 +1423,20 @@ class _NotaLibreDialogState extends State<_NotaLibreDialog> {
               decoration: InputDecoration(
                 labelText: 'Descripción *',
                 hintText: 'Ej: Vino de la casa, Servilletero...',
-                hintStyle:
-                    const TextStyle(color: Colors.white38, fontSize: 14),
+                hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
                 filled: true,
                 fillColor: AppTheme.colorSuperficie,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8)),
-                counterStyle:
-                    const TextStyle(color: AppTheme.colorTextoGris),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                counterStyle: const TextStyle(color: AppTheme.colorTextoGris),
               ),
             ),
             const SizedBox(height: 12),
             // ── PVP con IVA 10 % ─────────────────────────────
             TextField(
               controller: _pvpCtrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
               ],
@@ -1358,15 +1447,13 @@ class _NotaLibreDialogState extends State<_NotaLibreDialog> {
                 hintText: '0.00',
                 prefixText: '€  ',
                 prefixStyle: const TextStyle(
-                    color: AppTheme.colorPrimario,
-                    fontWeight: FontWeight.bold),
+                    color: AppTheme.colorPrimario, fontWeight: FontWeight.bold),
                 helperText: 'Dejar vacío o 0 si es gratuito',
-                helperStyle:
-                    const TextStyle(color: AppTheme.colorTextoGris),
+                helperStyle: const TextStyle(color: AppTheme.colorTextoGris),
                 filled: true,
                 fillColor: AppTheme.colorSuperficie,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               ),
             ),
             // ── Impresora (solo al crear) ─────────────────────
@@ -1379,8 +1466,7 @@ class _NotaLibreDialogState extends State<_NotaLibreDialog> {
                 decoration: InputDecoration(
                   labelText: 'Enviar a impresora',
                   helperText: 'Opcional — para imprimir en cocina/barra',
-                  helperStyle:
-                      const TextStyle(color: AppTheme.colorTextoGris),
+                  helperStyle: const TextStyle(color: AppTheme.colorTextoGris),
                   filled: true,
                   fillColor: AppTheme.colorSuperficie,
                   border: OutlineInputBorder(
@@ -1406,10 +1492,8 @@ class _NotaLibreDialogState extends State<_NotaLibreDialog> {
       actions: [
         if (widget.modoEdicion)
           TextButton(
-            onPressed: () =>
-                Navigator.pop(context, {'accion': 'eliminar'}),
-            style: TextButton.styleFrom(
-                foregroundColor: AppTheme.colorAcento),
+            onPressed: () => Navigator.pop(context, {'accion': 'eliminar'}),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.colorAcento),
             child: const Text('Eliminar'),
           ),
         TextButton(
@@ -1455,8 +1539,7 @@ class _TotalChip extends StatelessWidget {
             text: valor,
             style: TextStyle(
               fontSize: destacado ? 15 : 13,
-              fontWeight:
-                  destacado ? FontWeight.bold : FontWeight.normal,
+              fontWeight: destacado ? FontWeight.bold : FontWeight.normal,
               color: destacado ? AppTheme.colorPrimario : Colors.white,
             ),
           ),

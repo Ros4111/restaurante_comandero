@@ -102,11 +102,10 @@ class SunmiService {
     try {
       final nuevasImp = agruparLineasIgualdadImpresion(lineasNuevas);
       final elimImp = agruparLineasIgualdadImpresion(lineasEliminadas);
+
       final movImp = agruparLineasIgualdadImpresion(lineasMovidas);
 
-      if (nuevasImp.isEmpty &&
-          elimImp.isEmpty &&
-          movImp.isEmpty) {
+      if (nuevasImp.isEmpty && elimImp.isEmpty && movImp.isEmpty) {
         return;
       }
 
@@ -294,7 +293,8 @@ class SunmiService {
       final mac = prefs.getString('bt_printer_mac') ?? '';
       if (mac.isEmpty) return;
 
-      final tablaCodigos = prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
+      final tablaCodigos =
+          prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
       final papel = prefs.getString('bt_printer_papel') ?? 'mm58';
       final paperSize = papel == 'mm80' ? PaperSize.mm80 : PaperSize.mm58;
 
@@ -349,12 +349,12 @@ class SunmiService {
 
       if (lineasEliminadas.isNotEmpty) {
         bytes.addAll(generator.hr());
-        bytes.addAll(generator.text('CANCELADO:',
-            styles: const PosStyles(bold: true)));
+        bytes.addAll(
+            generator.text('CANCELADO:', styles: const PosStyles(bold: true)));
         for (final l in lineasEliminadas) {
-          bytes.addAll(generator.text(_escPosSafeText(
-              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
-                  sangria: true))));
+          bytes.addAll(generator.text(_escPosSafeText(_escPosLineaProductoRed(
+              l.cantidad, l.textoImprimirBarraCocina,
+              sangria: true))));
         }
       }
 
@@ -363,9 +363,9 @@ class SunmiService {
         bytes.addAll(
             generator.text('MOVIDO:', styles: const PosStyles(bold: true)));
         for (final l in lineasMovidas) {
-          bytes.addAll(generator.text(_escPosSafeText(
-              _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina,
-                  sangria: true))));
+          bytes.addAll(generator.text(_escPosSafeText(_escPosLineaProductoRed(
+              l.cantidad, l.textoImprimirBarraCocina,
+              sangria: true))));
           bytes.addAll(generator.text(
               _escPosSafeText('   Mesa $idMesa -> Mesa ${l.moverAMesa}')));
         }
@@ -789,7 +789,8 @@ class SunmiService {
       return 'No hay impresora Bluetooth configurada';
     }
 
-    final tablaCodigos = prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
+    final tablaCodigos =
+        prefs.getString('bt_printer_tabla_codigos') ?? 'CP1252';
     final papel = prefs.getString('bt_printer_papel') ?? 'mm58';
     final paperSize = papel == 'mm80' ? PaperSize.mm80 : PaperSize.mm58;
 

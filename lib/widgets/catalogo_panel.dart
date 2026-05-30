@@ -50,7 +50,7 @@ class CatalogoPanelState extends State<CatalogoPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final catalogo = context.read<CatalogoProvider>();
+    final catalogo = context.watch<CatalogoProvider>();
     if (!catalogo.loaded) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -87,21 +87,22 @@ class CatalogoPanelState extends State<CatalogoPanel> {
     String? etiquetaCabecera;
     if (modoBusqueda) {
       etiquetaCabecera = switch (widget.busqueda.modo) {
-        ModoBusquedaCatalogoPedido.porFiltro when widget.busqueda.filtro.isEmpty =>
+        ModoBusquedaCatalogoPedido.porFiltro
+            when widget.busqueda.filtro.isEmpty =>
           'Filtrar campo clave (añade texto tras mm)',
         ModoBusquedaCatalogoPedido.porFiltro => 'Por filtro',
-        ModoBusquedaCatalogoPedido.porFiltroOpciones =>
-          'Por filtro y opciones',
+        ModoBusquedaCatalogoPedido.porFiltroOpciones => 'Por filtro y opciones',
         _ => 'Por nombre',
       };
     }
 
     final showHeader = hayAtras || modoBusqueda;
-    final showManual =
-        !modoBusqueda && !hayAtras && widget.onManual != null;
+    final showManual = !modoBusqueda && !hayAtras && widget.onManual != null;
     final showEmpty = modoBusqueda && prods.isEmpty;
-    final itemCount =
-        (showEmpty ? 1 : 0) + subcats.length + prods.length + (showManual ? 1 : 0);
+    final itemCount = (showEmpty ? 1 : 0) +
+        subcats.length +
+        prods.length +
+        (showManual ? 1 : 0);
 
     return Column(
       children: [
@@ -116,8 +117,8 @@ class CatalogoPanelState extends State<CatalogoPanel> {
                     onPressed: volverCategoriaSuperior,
                     style: TextButton.styleFrom(
                       foregroundColor: _colorTextoCategoria,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),

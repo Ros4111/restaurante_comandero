@@ -28,6 +28,7 @@ class ApiService extends ChangeNotifier {
   bool _serverReachable = true;
   bool _tokenExpirado = false;
   String? _terminalSerieCache;
+  final http.Client _httpClient = http.Client();
 
   String get baseUrl => _baseUrl;
   bool get serverReachable => _serverReachable;
@@ -75,8 +76,7 @@ class ApiService extends ChangeNotifier {
   Future<String?> _androidHardwareSerial() async {
     if (kIsWeb || !Platform.isAndroid) return null;
     try {
-      final raw =
-          await _deviceChannel.invokeMethod<String>('getDeviceSerial');
+      final raw = await _deviceChannel.invokeMethod<String>('getDeviceSerial');
       final t = raw?.trim() ?? '';
       if (t.isNotEmpty && t.toLowerCase() != 'unknown') return t;
     } catch (_) {}
@@ -133,20 +133,22 @@ class ApiService extends ChangeNotifier {
         late http.Response res;
 
         if (method == 'GET') {
-          res = await http
+          res = await _httpClient
               .get(uri, headers: _headers)
               .timeout(const Duration(seconds: 8));
         } else {
-          res = await http
+          res = await _httpClient
               .post(uri,
                   headers: _headers,
                   body: body != null ? json.encode(body) : null)
               .timeout(const Duration(seconds: 15));
         }
 
-        debugPrint('>>> URL: $uri');
-        debugPrint('>>> STATUS: ${res.statusCode}');
-        debugPrint('>>> BODY: ${res.body}');
+        if (kDebugMode) {
+          debugPrint('>>> URL: $uri');
+          debugPrint('>>> STATUS: ${"{"}res.statusCode{"}"}');
+          debugPrint('>>> BODY: ${"{"}res.body{"}"}');
+        }
 
         _setReachable(true);
 
@@ -244,8 +246,10 @@ class ApiService extends ChangeNotifier {
         _setReachable(true);
 
         if (res.statusCode != 200) {
-          debugPrint(
-              '$tag ERROR HTTP ${res.statusCode}: cuerpo no procesado como OK');
+          if (kDebugMode) {
+            debugPrint(
+                '$tag ERROR HTTP ${res.statusCode}: cuerpo no procesado como OK');
+          }
           throw ApiException(
             'HTTP ${res.statusCode}: ${res.body.length > 200 ? '${res.body.substring(0, 200)}…' : res.body}',
             statusCode: res.statusCode,
@@ -256,8 +260,8 @@ class ApiService extends ChangeNotifier {
         try {
           decoded = json.decode(res.body);
         } catch (e, st) {
-          debugPrint('$tag ERROR JSON inválido: $e');
-          debugPrint('$tag $st');
+          if (kDebugMode) debugPrint('$tag ERROR JSON inválido: $e');
+          if (kDebugMode) debugPrint('$tag $st');
           throw ApiException('Respuesta no es JSON válido');
         }
 
@@ -659,8 +663,7 @@ class ApiService extends ChangeNotifier {
     required String texto,
     required double pvpConIva,
   }) async {
-    await _request(
-        'POST', '/pedidos/$idPedido/nota-libre/$idLinea/editar',
+    await _request('POST', '/pedidos/$idPedido/nota-libre/$idLinea/editar',
         body: {
           'texto': texto.trim(),
           'pvp_con_iva': pvpConIva,
@@ -670,9 +673,7 @@ class ApiService extends ChangeNotifier {
 
   // ── Historial de mesas ─────────────────────────────────────
   Future<List<MesaHistorico>> getHistoricoMesas({int dias = 0}) async {
-    final path = dias > 0
-        ? '/historico/mesas?dias=$dias'
-        : '/historico/mesas';
+    final path = dias > 0 ? '/historico/mesas?dias=$dias' : '/historico/mesas';
     final list = await _requestList(path);
     return list
         .map((j) => MesaHistorico.fromJson(j as Map<String, dynamic>))

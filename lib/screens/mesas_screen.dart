@@ -243,8 +243,7 @@ class _MesasScreenState extends State<MesasScreen> {
 
     final bloqueadaPorOtro = _mesaBloqueadaPorOtro(mesa);
     final serieBloqueo = (mesa.terminalSerieBloqueo ?? '').trim();
-    final nombreBloqueador =
-        (mesa.nombreUsuarioBloqueo ?? serieBloqueo).trim();
+    final nombreBloqueador = (mesa.nombreUsuarioBloqueo ?? serieBloqueo).trim();
 
     await showModalBottomSheet<void>(
       context: context,
@@ -254,9 +253,8 @@ class _MesasScreenState extends State<MesasScreen> {
       ),
       builder: (ctx) {
         final tieneImporte = mesa.totalImporte > 0;
-        final importeText = tieneImporte
-            ? '${mesa.totalImporte.toStringAsFixed(2)} €'
-            : '--';
+        final importeText =
+            tieneImporte ? '${mesa.totalImporte.toStringAsFixed(2)} €' : '--';
         final cliente = (mesa.nombreCliente ?? '').trim();
         return SafeArea(
           child: Padding(
@@ -290,8 +288,8 @@ class _MesasScreenState extends State<MesasScreen> {
                       const SizedBox(width: 4),
                       Text(
                         kMesaBloqueadaSoloVer,
-                        style: const TextStyle(
-                            color: Colors.orange, fontSize: 13),
+                        style:
+                            const TextStyle(color: Colors.orange, fontSize: 13),
                       ),
                     ],
                   ),
@@ -299,8 +297,8 @@ class _MesasScreenState extends State<MesasScreen> {
                 const SizedBox(height: 10),
                 // Chip de importe
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                   decoration: BoxDecoration(
                     color: AppTheme.colorPrimario.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
@@ -360,11 +358,10 @@ class _MesasScreenState extends State<MesasScreen> {
                 // Opción: Mover mesa (solo supervisor/admin)
                 if (sesion.esSupervisor)
                   ListTile(
-                    leading:
-                        const Icon(Icons.swap_horiz, color: Colors.orange),
+                    leading: const Icon(Icons.swap_horiz, color: Colors.orange),
                     title: const Text('Mover mesa completa'),
-                    subtitle: const Text(
-                        'Traspasar todos los productos a otra mesa'),
+                    subtitle:
+                        const Text('Traspasar todos los productos a otra mesa'),
                     onTap: () {
                       Navigator.pop(ctx);
                       _traspasarMesa(mesa);
@@ -449,8 +446,7 @@ class _MesasScreenState extends State<MesasScreen> {
           ),
           ElevatedButton.icon(
             onPressed: () => Navigator.pop(ctx, 'entrar'),
-            style:
-                ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
             icon: const Icon(Icons.phonelink_erase, size: 18),
             label: const Text('Expulsar y entrar'),
           ),
@@ -521,9 +517,8 @@ class _MesasScreenState extends State<MesasScreen> {
 
       final ahora = DateFormat('HH:mm  dd/MM/yyyy').format(DateTime.now());
       final cliente = (mesa.nombreCliente ?? '').trim();
-      final importeStr = mesa.totalImporte > 0
-          ? mesa.totalImporte.toStringAsFixed(2)
-          : '0.00';
+      final importeStr =
+          mesa.totalImporte > 0 ? mesa.totalImporte.toStringAsFixed(2) : '0.00';
 
       final lineasTicket = <String>[
         '================================',
@@ -609,14 +604,16 @@ class _MesasScreenState extends State<MesasScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final sesion = context.watch<SesionProvider>();
-    final api = context.watch<ApiService>();
+    final nombreUsuario =
+        context.select<SesionProvider, String?>((s) => s.usuario?.nombre);
+    final esAdmin = context.select<SesionProvider, bool>((s) => s.esAdmin);
+    final serverOk = context.select<ApiService, bool>((a) => a.serverReachable);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Mesas · ${sesion.usuario?.nombre ?? ''}'),
+        title: Text('Mesas · ${nombreUsuario ?? ''}'),
         actions: [
-          if (sesion.esAdmin)
+          if (esAdmin)
             IconButton(
               tooltip: 'Configuración',
               icon: const Icon(Icons.settings),
@@ -651,7 +648,7 @@ class _MesasScreenState extends State<MesasScreen> {
           IconButton(icon: const Icon(Icons.refresh), onPressed: _cargar),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
-        bottom: api.serverReachable
+        bottom: serverOk
             ? null
             : PreferredSize(
                 preferredSize: const Size.fromHeight(30),
@@ -692,6 +689,26 @@ class _MesasScreenState extends State<MesasScreen> {
                     const spacing = 12.0;
                     final tileWidth = (c.maxWidth - 32 - (spacing * 2)) / 3;
                     final baseHeight = tileWidth / 1.1;
+                    return GridView.builder(
+                        padding: const EdgeInsets.all(16),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: spacing,
+                          mainAxisSpacing: spacing,
+                          childAspectRatio: 1.1,
+                        ),
+                        itemCount: _mesas.length,
+                        itemBuilder: (ctx, i) {
+                          final m = _mesas[i];
+                          return _MesaTile(
+                            mesa: m,
+                            terminalSerieActual: _terminalSerie,
+                            onTap: _cargandoMesa ? null : () => _entrarMesa(m),
+                            onLongPress: _cargandoMesa
+                                ? null
+                                : () => _mostrarOpcionesMesa(m),
+                          );
+                        });
                     return SingleChildScrollView(
                       padding: const EdgeInsets.all(16),
                       child: Wrap(
@@ -708,7 +725,8 @@ class _MesasScreenState extends State<MesasScreen> {
                             child: _MesaTile(
                               mesa: m,
                               terminalSerieActual: _terminalSerie,
-                              onTap: _cargandoMesa ? null : () => _entrarMesa(m),
+                              onTap:
+                                  _cargandoMesa ? null : () => _entrarMesa(m),
                               onLongPress: _cargandoMesa
                                   ? null
                                   : () => _mostrarOpcionesMesa(m),
@@ -915,11 +933,13 @@ class _AbrirMesaDialogState extends State<_AbrirMesaDialog> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final dialogWidth = (screenWidth - 20).clamp(0.0, 400.0);
-    final horizontalInset = ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
+    final horizontalInset =
+        ((screenWidth - dialogWidth) / 2).clamp(0.0, double.infinity);
     return AlertDialog(
       backgroundColor: AppTheme.colorTarjeta,
       contentPadding: const EdgeInsets.all(6),
-      insetPadding: EdgeInsets.symmetric(horizontal: horizontalInset, vertical: 24),
+      insetPadding:
+          EdgeInsets.symmetric(horizontal: horizontalInset, vertical: 24),
       title: Text(widget.titulo),
       content: SizedBox(
         width: dialogWidth,
