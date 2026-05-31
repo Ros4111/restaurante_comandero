@@ -155,6 +155,7 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
               filtro: catalogo.productos[idx].filtro,
               idImpresora: catalogo.productos[idx].idImpresora,
               disponible: catalogo.productos[idx].disponible,
+              agotado: catalogo.productos[idx].agotado,
               orden: nuevoOrden,
               baseImponible: catalogo.productos[idx].baseImponible,
               porcentajeIVA: catalogo.productos[idx].porcentajeIVA,

@@ -57,6 +57,32 @@ function ensureImpresoraColumnUsuarios(PDO $db): void {
     }
 }
 
+function ensureUrgenteColumnPedidoDetalles(PDO $db): void {
+    try {
+        $check = $db->query("SHOW COLUMNS FROM pedido_detalles LIKE 'urgente'");
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                'ALTER TABLE pedido_detalles ADD COLUMN urgente TINYINT(1) NOT NULL DEFAULT 0 AFTER modificado_servicio'
+            );
+        }
+    } catch (Throwable $e) {
+        // El SELECT posterior fallará con mensaje claro si falta la columna.
+    }
+}
+
+function ensureAgotadoColumnProductos(PDO $db): void {
+    try {
+        $check = $db->query("SHOW COLUMNS FROM productos LIKE 'agotado'");
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                'ALTER TABLE productos ADD COLUMN agotado TINYINT(1) NOT NULL DEFAULT 0 AFTER disponible'
+            );
+        }
+    } catch (Throwable $e) {
+        // El SELECT posterior fallará con mensaje claro si falta la columna.
+    }
+}
+
 function getBody(): array {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw ?: '{}', true);

@@ -327,6 +327,16 @@ class SunmiService {
       bytes.addAll(generator.hr());
 
       for (final l in lineasNuevas) {
+        if (l.urgente) {
+          bytes.addAll(generator.text(
+            _escPosSafeText('*** URGENTE ***'),
+            styles: const PosStyles(
+              bold: true,
+              align: PosAlign.center,
+              reverse: true,
+            ),
+          ));
+        }
         bytes.addAll(generator.text(
           _escPosSafeText(
               _escPosLineaProductoRed(l.cantidad, l.textoImprimirBarraCocina)),
@@ -578,6 +588,12 @@ class SunmiService {
 
     if (lineasNuevas.isNotEmpty) {
       for (final l in lineasNuevas) {
+        if (l.urgente) {
+          await SunmiPrinter.printText(
+            '*** URGENTE ***',
+            style: SunmiTextStyle(bold: true, fontSize: 28, reverse: true),
+          );
+        }
         await SunmiPrinter.printText(
           '${l.cantidad}x${l.textoImprimirBarraCocina}',
           style: SunmiTextStyle(bold: true, fontSize: 35, reverse: false),

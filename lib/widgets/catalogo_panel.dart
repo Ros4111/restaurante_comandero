@@ -296,22 +296,67 @@ class _ProdTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final agotado = p.agotado;
     return InkWell(
-      onTap: onTap,
-      onLongPress: onLongPress,
+      onTap: agotado
+          ? () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${p.nombreProductoPantalla} — AGOTADO (86)'),
+                  backgroundColor: AppTheme.colorAgotado,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          : onTap,
+      onLongPress: agotado ? null : onLongPress,
       child: Container(
         decoration: BoxDecoration(
-          color: backgroundColor,
+          color: agotado
+              ? backgroundColor.withValues(alpha: 0.55)
+              : backgroundColor,
           border: const Border(
             bottom: BorderSide(color: Colors.black26, width: 1),
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-        child: Text(
-          p.nombreProductoPantalla,
-          style: const TextStyle(
-              color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-          overflow: TextOverflow.ellipsis,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                p.nombreProductoPantalla,
+                style: TextStyle(
+                  color: agotado ? AppTheme.colorTextoGris : Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  decoration:
+                      agotado ? TextDecoration.lineThrough : TextDecoration.none,
+                  decorationColor: AppTheme.colorTextoGris,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (agotado) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.colorAgotado.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppTheme.colorAgotado),
+                ),
+                child: const Text(
+                  '86',
+                  style: TextStyle(
+                    color: AppTheme.colorAgotado,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

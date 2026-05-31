@@ -115,6 +115,8 @@ class Producto {
   final String filtro;
   final int idImpresora;
   final bool disponible;
+  /// Marca temporal 86 desde cocina/barra (distinto de [disponible] del admin).
+  final bool agotado;
   final int orden;
   final double baseImponible;
   final double porcentajeIVA;
@@ -128,6 +130,7 @@ class Producto {
       this.filtro = '',
       required this.idImpresora,
       required this.disponible,
+      this.agotado = false,
       required this.orden,
       this.baseImponible = 0.0,
       this.porcentajeIVA = 0.0});
@@ -141,6 +144,7 @@ class Producto {
         filtro: j['filtro']?.toString() ?? '',
         idImpresora: int.parse((j['id_impresora'] ?? 0).toString()),
         disponible: j['disponible'].toString() == '1',
+        agotado: j['agotado']?.toString() == '1',
         orden: int.parse((j['orden'] ?? 0).toString()),
         baseImponible:
             double.tryParse((j['base_imponible'] ?? 0).toString()) ?? 0.0,
@@ -188,6 +192,7 @@ class LineaPedido {
   bool impreso;
   int? moverAMesa; // si != null, mover esta línea a otra mesa
   bool editada;
+  bool urgente;
   /// PVP unitario (IVA incluido) almacenado en BD. Solo fiable para notas libres;
   /// para productos regulares se recalcula desde el catálogo.
   final double pvpAlmacenado;
@@ -204,6 +209,7 @@ class LineaPedido {
     this.impreso = false,
     this.moverAMesa,
     this.editada = false,
+    this.urgente = false,
     this.pvpAlmacenado = 0.0,
   });
 
@@ -253,6 +259,8 @@ class LineaPedido {
       orden: int.parse((j['orden'] ?? 0).toString()),
       impreso: j['impreso'].toString() == '1',
       editada: false,
+      urgente: j['urgente'] == true ||
+          j['urgente']?.toString() == '1',
       pvpAlmacenado: pvp,
     );
   }
@@ -269,6 +277,7 @@ class LineaPedido {
     };
     if (idLinea != null) m['id_linea'] = idLinea;
     if (moverAMesa != null) m['mover_a_mesa'] = moverAMesa;
+    m['urgente'] = urgente;
     return m;
   }
 
@@ -281,6 +290,7 @@ class LineaPedido {
       'comentario': comentario,
       'opciones_elegidas':
           opcionesElegidas.map((k, v) => MapEntry(k.toString(), v.toJson())),
+      'urgente': urgente,
     };
     if (idLinea != null) m['id_linea'] = idLinea;
     if (moverAMesa != null) m['mover_a_mesa'] = moverAMesa;
@@ -293,6 +303,7 @@ class LineaPedido {
     int? moverAMesa,
     Map<int, OpcionElegida>? opcionesElegidas,
     bool? editada,
+    bool? urgente,
   }) =>
       LineaPedido(
         idLinea: idLinea,
@@ -307,6 +318,7 @@ class LineaPedido {
         impreso: impreso,
         moverAMesa: moverAMesa ?? this.moverAMesa,
         editada: editada ?? this.editada,
+        urgente: urgente ?? this.urgente,
         pvpAlmacenado: pvpAlmacenado,
       );
 }
@@ -479,6 +491,7 @@ class LineaPendienteServir {
   final Map<int, OpcionElegida> opcionesElegidas;
   /// Línea ya enviada a cocina y modificada después (cantidad/comentario).
   final bool modificado;
+  final bool urgente;
 
   const LineaPendienteServir({
     required this.idLinea,
@@ -489,6 +502,7 @@ class LineaPendienteServir {
     required this.nombre,
     this.opcionesElegidas = const {},
     this.modificado = false,
+    this.urgente = false,
   });
 
   factory LineaPendienteServir.fromJson(Map<String, dynamic> j) {
@@ -511,6 +525,7 @@ class LineaPendienteServir {
       modificado: j['modificado'] == true ||
           j['modificado']?.toString() == '1' ||
           j['modificado_servicio']?.toString() == '1',
+      urgente: j['urgente'] == true || j['urgente']?.toString() == '1',
     );
   }
 
@@ -549,6 +564,8 @@ class PedidoPendienteServir {
     required this.nombreCliente,
     required this.lineas,
   });
+
+  bool get tieneUrgente => lineas.any((l) => l.urgente);
 
   factory PedidoPendienteServir.fromJson(Map<String, dynamic> j) {
     final idPedido = int.parse(j['id_pedido'].toString());

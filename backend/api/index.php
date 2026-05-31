@@ -71,6 +71,14 @@ if ($uri === '/catalogo/reordenar' && $method === 'POST') {
     require __DIR__ . '/endpoints/catalogo.php';
     endpointCatalogoReordenar($payload);
 }
+if ($uri === '/catalogo/agotado' && $method === 'POST') {
+    require __DIR__ . '/endpoints/catalogo.php';
+    endpointCatalogoMarcarAgotado($payload);
+}
+if ($uri === '/catalogo/stream' && $method === 'GET') {
+    require __DIR__ . '/endpoints/catalogo.php';
+    endpointCatalogoStream($payload);
+}
 
 // Usuarios admin
 if ($uri === '/usuarios/admin/lista' && $method === 'GET') {
@@ -177,6 +185,10 @@ if (preg_match('#^/pedidos/(\d+)/nota-libre/(\d+)/editar$#', $uri, $m) && $metho
     require __DIR__ . '/endpoints/pedidos.php';
     endpointNotaLibreEditar($payload, (int)$m[1], (int)$m[2]);
 }
+if (preg_match('#^/pedidos/(\d+)/urgente$#', $uri, $m) && $method === 'POST') {
+    require __DIR__ . '/endpoints/pedidos.php';
+    endpointPedidoMarcarUrgente($payload, (int)$m[1]);
+}
 
 // Historial de mesas (solo admin)
 if ($uri === '/historico/mesas' && $method === 'GET') {
@@ -200,6 +212,10 @@ if ($uri === '/servicio/pendientes' && $method === 'GET') {
 if ($uri === '/servicio/marcar-servido' && $method === 'POST') {
     require __DIR__ . '/endpoints/servicio.php';
     endpointServicioMarcarServido($payload);
+}
+if ($uri === '/servicio/stream' && $method === 'GET') {
+    require __DIR__ . '/endpoints/servicio.php';
+    endpointServicioStream($payload);
 }
 
 jsonError('Ruta no encontrada', 404);

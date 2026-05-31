@@ -143,6 +143,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
     $nombreCliente = _nombreClienteDesdeBody($body);
 
     $db = getDB();
+    ensureUrgenteColumnPedidoDetalles($db);
     $db->beginTransaction();
     try {
         $huboCambios = false;
@@ -272,6 +273,14 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 continue; // no actualizar otros campos
             }
 
+            $urgenteNew = !empty($envRow['urgente']) ? 1 : 0;
+            $urgenteOld = (int)($bdRow['urgente'] ?? 0);
+            if ($urgenteNew !== $urgenteOld) {
+                $db->prepare('UPDATE pedido_detalles SET urgente = ? WHERE id_linea = ?')
+                    ->execute([$urgenteNew, $lid]);
+                $huboCambios = true;
+            }
+
             if ($changed) {
                 $cambios['id_pedido'] = $idPedido;
                 $cambios['id_linea']  = $lid;
@@ -305,11 +314,12 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             'INSERT INTO pedido_detalles
              (id_pedido, id_producto, cantidad, comentario,
               nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden,
-              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?)'
+              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido, urgente)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?)'
         );
         foreach ($nuevas as $n) {
             $maxOrden++;
+            $urgenteN = !empty($n['urgente']) ? 1 : 0;
             $opcionesDecoded = $n['opciones_elegidas'] ?? null;
             $opcionesJson = $opcionesDecoded !== null
                 ? json_encode($opcionesDecoded, JSON_UNESCAPED_UNICODE)
@@ -335,6 +345,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $calc['porcentaje_IVA'],
                 $impIVALinea,
                 $horaPedido,
+                $urgenteN,
             ]);
             $newId = (int)$db->lastInsertId();
             $huboCambios = true;
@@ -790,6 +801,55 @@ function endpointNotaLibreEditar(array $payload, int $idPedido, int $idLinea): v
     } catch (Throwable $e) {
         $db->rollBack();
         logEvent('Error nota_libre_editar ' . $idLinea . ': ' . $e->getMessage(), 'error');
+        jsonError('Error interno: ' . $e->getMessage(), 500);
+    }
+}
+
+/** Marca o quita prioridad urgente en una línea ya guardada (cocina/barra). */
+function endpointPedidoMarcarUrgente(array $payload, int $idPedido): void {
+    $body = getBody();
+    $idLinea = (int)($body['id_linea'] ?? 0);
+    if ($idLinea <= 0) {
+        jsonError('id_linea obligatorio', 400);
+    }
+    $urgente = !empty($body['urgente']);
+    $terminalSerie = terminalSerieDesdeBody($body);
+
+    $db = getDB();
+    ensureUrgenteColumnPedidoDetalles($db);
+    $db->beginTransaction();
+    try {
+        $st = $db->prepare('SELECT * FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE');
+        $st->execute([$idPedido]);
+        $cab = $st->fetch();
+        if (!$cab) {
+            $db->rollBack();
+            incidenciaMesaNoEncontrada($db, 'marcar_urgente', $idPedido, $terminalSerie, (int)$payload['sub']);
+            jsonError('Mesa no encontrada', 404);
+        }
+        _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
+
+        $stLinea = $db->prepare(
+            'SELECT id_linea FROM pedido_detalles WHERE id_linea = ? AND id_pedido = ?'
+        );
+        $stLinea->execute([$idLinea, $idPedido]);
+        if (!$stLinea->fetch()) {
+            $db->rollBack();
+            jsonError('Línea no encontrada en este pedido', 404);
+        }
+
+        $db->prepare('UPDATE pedido_detalles SET urgente = ? WHERE id_linea = ?')
+            ->execute([$urgente ? 1 : 0, $idLinea]);
+
+        $db->prepare(
+            'UPDATE pedido_cabecera SET hora_ultima_accion = NOW() WHERE id_pedido = ?'
+        )->execute([$idPedido]);
+
+        $db->commit();
+        jsonOk(['urgente' => $urgente]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        logEvent('Error marcar_urgente ' . $idLinea . ': ' . $e->getMessage(), 'error');
         jsonError('Error interno: ' . $e->getMessage(), 500);
     }
 }

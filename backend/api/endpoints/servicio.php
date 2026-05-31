@@ -94,6 +94,7 @@ function _agruparLineasPendientes(array $lineas): array {
         $idLinea = (int)$linea['id_linea'];
         $cant = (int)$linea['cantidad'];
         $esModificado = !empty($linea['modificado']);
+        $esUrgente = !empty($linea['urgente']);
         if (!isset($grupos[$key])) {
             $grupos[$key] = [
                 'id_linea'                 => $idLinea,
@@ -104,12 +105,15 @@ function _agruparLineasPendientes(array $lineas): array {
                 'nombre_producto_pantalla' => (string)$linea['nombre_producto_pantalla'],
                 'opciones_elegidas'        => $opciones,
                 'modificado'               => $esModificado,
+                'urgente'                  => $esUrgente,
             ];
         } else {
             $grupos[$key]['ids_linea'][] = $idLinea;
             $grupos[$key]['cantidad'] += $cant;
             $grupos[$key]['modificado'] =
                 ($grupos[$key]['modificado'] ?? false) || $esModificado;
+            $grupos[$key]['urgente'] =
+                ($grupos[$key]['urgente'] ?? false) || $esUrgente;
         }
     }
     return array_values($grupos);
@@ -119,11 +123,13 @@ function endpointServicioPendientes(array $payload): void {
     requireServicioAccess($payload);
 
     $db = getDB();
+    ensureUrgenteColumnPedidoDetalles($db);
     $idsImp = _impresoraIdsFiltro($payload, $db);
 
     $sql = 'SELECT d.id_linea, d.id_pedido, d.id_producto, d.cantidad, d.comentario,
                    d.nombre_producto_pantalla, d.opciones_elegidas, d.orden, d.hora_pedido,
                    COALESCE(d.modificado_servicio, 0) AS modificado_servicio,
+                   COALESCE(d.urgente, 0) AS urgente,
                    c.id_mesa, COALESCE(c.nombre_cliente, \'\') AS nombre_cliente,
                    p.id_impresora
               FROM pedido_detalles d
@@ -139,7 +145,7 @@ function endpointServicioPendientes(array $payload): void {
         $params = array_merge($params, $idsImp);
     }
 
-    $sql .= ' ORDER BY d.hora_pedido ASC, d.orden ASC, d.id_linea ASC';
+    $sql .= ' ORDER BY COALESCE(d.urgente, 0) DESC, d.hora_pedido ASC, d.orden ASC, d.id_linea ASC';
 
     $st = $db->prepare($sql);
     $st->execute($params);
@@ -176,15 +182,42 @@ function endpointServicioPendientes(array $payload): void {
             'nombre_producto_pantalla' => (string)$r['nombre_producto_pantalla'],
             'opciones_elegidas'        => $opciones,
             'modificado'               => (int)$r['modificado_servicio'] === 1,
+            'urgente'                  => (int)($r['urgente'] ?? 0) === 1,
         ];
     }
 
     foreach ($pedidos as &$pedido) {
         $pedido['lineas'] = _agruparLineasPendientes($pedido['lineas']);
+        usort(
+            $pedido['lineas'],
+            static fn(array $a, array $b): int =>
+                ((int)($b['urgente'] ?? 0) <=> (int)($a['urgente'] ?? 0))
+        );
     }
     unset($pedido);
 
-    jsonOk(array_values($pedidos));
+    $lista = array_values($pedidos);
+    usort(
+        $lista,
+        static function (array $a, array $b): int {
+            $ua = array_reduce(
+                $a['lineas'],
+                static fn(bool $c, array $l): bool => $c || !empty($l['urgente']),
+                false
+            );
+            $ub = array_reduce(
+                $b['lineas'],
+                static fn(bool $c, array $l): bool => $c || !empty($l['urgente']),
+                false
+            );
+            if ($ua !== $ub) {
+                return $ub <=> $ua;
+            }
+            return strcmp((string)$a['hora_pedido'], (string)$b['hora_pedido']);
+        }
+    );
+
+    jsonOk($lista);
 }
 
 function endpointServicioMarcarServido(array $payload): void {
@@ -230,4 +263,78 @@ function endpointServicioMarcarServido(array $payload): void {
     jsonOk([
         'actualizadas' => $st->rowCount(),
     ]);
+}
+
+/**
+ * Huella estable del estado de pendientes (misma lógica de filtro que la lista).
+ * Cambia al guardar pedidos, marcar servido o modificar líneas en cocina.
+ */
+function _servicioPendientesRevision(PDO $db, ?array $idsImp): string {
+    $sql = 'SELECT COUNT(*) AS num_lineas,
+                   COALESCE(MAX(d.id_linea), 0) AS max_id_linea,
+                   COALESCE(MAX(d.hora_pedido), \'\') AS max_hora,
+                   COALESCE(SUM(d.cantidad), 0) AS sum_cantidad,
+                   COALESCE(SUM(COALESCE(d.modificado_servicio, 0)), 0) AS sum_modificadas,
+                   COALESCE(SUM(COALESCE(d.urgente, 0)), 0) AS sum_urgentes
+              FROM pedido_detalles d
+              INNER JOIN productos p ON p.id_producto = d.id_producto
+             WHERE d.servido = ?
+               AND d.cantidad > 0';
+    $params = [SERVIDO_PENDIENTE];
+
+    if ($idsImp !== null) {
+        $placeholders = implode(',', array_fill(0, count($idsImp), '?'));
+        $sql .= " AND p.id_impresora IN ($placeholders)";
+        $params = array_merge($params, $idsImp);
+    }
+
+    $st = $db->prepare($sql);
+    $st->execute($params);
+    $row = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    return md5(json_encode($row, JSON_UNESCAPED_UNICODE));
+}
+
+/** SSE: avisa cuando cambia la cola de pendientes (~1 s). Reconexión automática en el cliente. */
+function endpointServicioStream(array $payload): void {
+    requireServicioAccess($payload);
+
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_buffering', 'off');
+    @set_time_limit(0);
+    while (ob_get_level() > 0) {
+        ob_end_flush();
+    }
+
+    header('Content-Type: text/event-stream; charset=utf-8');
+    header('Cache-Control: no-cache, no-transform');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+
+    $db = getDB();
+    ensureUrgenteColumnPedidoDetalles($db);
+    $idsImp = _impresoraIdsFiltro($payload, $db);
+    $lastRevision = _servicioPendientesRevision($db, $idsImp);
+    $started = time();
+    $maxSeconds = 55;
+    $tick = 0;
+
+    echo ": connected\n\n";
+    flush();
+
+    while (!connection_aborted() && (time() - $started) < $maxSeconds) {
+        $revision = _servicioPendientesRevision($db, $idsImp);
+        if ($revision !== $lastRevision) {
+            $lastRevision = $revision;
+            echo 'event: update' . "\n";
+            echo 'data: ' . json_encode(['revision' => $revision], JSON_UNESCAPED_UNICODE) . "\n\n";
+            flush();
+        } elseif ($tick % 15 === 0) {
+            echo ': ping ' . time() . "\n\n";
+            flush();
+        }
+        $tick++;
+        sleep(1);
+    }
+    exit;
 }

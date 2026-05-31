@@ -25,6 +25,30 @@ class CatalogoProvider extends ChangeNotifier {
 
   Producto? productoPorId(int id) => _productoPorId[id];
 
+  bool productoPedible(Producto p) => p.disponible && !p.agotado;
+
+  void setAgotadoLocal(int idProducto, bool agotado) {
+    final idx = productos.indexWhere((p) => p.id == idProducto);
+    if (idx < 0) return;
+    final p = productos[idx];
+    productos[idx] = Producto(
+      id: p.id,
+      nombreProductoPantalla: p.nombreProductoPantalla,
+      idCategoria: p.idCategoria,
+      textoImprimirBarraCocina: p.textoImprimirBarraCocina,
+      textoImprimirCliente: p.textoImprimirCliente,
+      filtro: p.filtro,
+      idImpresora: p.idImpresora,
+      disponible: p.disponible,
+      agotado: agotado,
+      orden: p.orden,
+      baseImponible: p.baseImponible,
+      porcentajeIVA: p.porcentajeIVA,
+    );
+    _reconstruirIndices();
+    notifyListeners();
+  }
+
   void notificarCambios() {
     _reconstruirIndices();
     notifyListeners();
@@ -379,6 +403,7 @@ class MesaProvider extends ChangeNotifier {
     String? comentario,
     int? moverAMesa,
     Map<int, OpcionElegida>? opcionesElegidas,
+    bool? urgente,
     bool marcarEditada = false,
   }) {
     final idx = lineas.indexOf(linea);
@@ -388,6 +413,7 @@ class MesaProvider extends ChangeNotifier {
       comentario: comentario,
       moverAMesa: moverAMesa,
       opcionesElegidas: opcionesElegidas,
+      urgente: urgente,
       editada: marcarEditada ? true : linea.editada,
     );
     notifyListeners();

@@ -46,6 +46,7 @@ function endpointCatalogoReordenar(array $payload): void {
 function endpointCatalogo(array $payload): void {
     $db = getDB();
     ensureTablaCodigosColumn($db);
+    ensureAgotadoColumnProductos($db);
 
     $cats = $db->query(
         'SELECT id_categoria, id_categoria_padre, nombre_categoria, nombre_imagen, disponible, orden FROM categoria_producto ORDER BY orden'
@@ -53,7 +54,8 @@ function endpointCatalogo(array $payload): void {
 
     $prods = $db->query(
         'SELECT id_producto, nombre_producto_pantalla, id_categoria,
-                texto_imprimir_cocina, id_impresora, disponible, orden,
+                texto_imprimir_cocina, id_impresora, disponible,
+                COALESCE(agotado, 0) AS agotado, orden,
                 base_imponible, porcentaje_IVA, COALESCE(filtro, \'\') AS filtro
            FROM productos ORDER BY orden, id_producto'
     )->fetchAll();
@@ -84,4 +86,105 @@ function endpointCatalogo(array $payload): void {
         'opciones'   => $opciones,
         'impresoras' => $impresoras,
     ]);
+}
+
+/** Huella del estado 86/agotado para SSE del catálogo. */
+function _catalogoAgotadoRevision(PDO $db): string {
+    ensureAgotadoColumnProductos($db);
+    $row = $db->query(
+        'SELECT COUNT(*) AS num_productos,
+                COALESCE(SUM(COALESCE(agotado, 0)), 0) AS sum_agotado,
+                COALESCE(MAX(id_producto), 0) AS max_id
+           FROM productos
+          WHERE disponible = 1'
+    )->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    return md5(json_encode($row, JSON_UNESCAPED_UNICODE));
+}
+
+/** Marca o desmarca un producto como agotado (86). Cocina/barra según impresora. */
+function endpointCatalogoMarcarAgotado(array $payload): void {
+    require_once __DIR__ . '/servicio.php';
+    requireServicioAccess($payload);
+
+    $body = getBody();
+    $idProducto = isset($body['id_producto']) ? (int)$body['id_producto'] : 0;
+    if ($idProducto <= 0) {
+        jsonError('id_producto requerido');
+    }
+    $agotado = !empty($body['agotado']) ? 1 : 0;
+
+    $db = getDB();
+    ensureAgotadoColumnProductos($db);
+
+    $st = $db->prepare(
+        'SELECT id_producto, id_impresora, disponible, COALESCE(agotado, 0) AS agotado
+           FROM productos WHERE id_producto = ?'
+    );
+    $st->execute([$idProducto]);
+    $prod = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$prod) {
+        jsonError('Producto no encontrado', 404);
+    }
+    if ((int)$prod['disponible'] !== 1) {
+        jsonError('El producto no está disponible en catálogo');
+    }
+
+    $idsImp = _impresoraIdsFiltro($payload, $db);
+    if ($idsImp !== null && !in_array((int)$prod['id_impresora'], $idsImp, true)) {
+        jsonError('No puedes marcar 86 en productos de otra estación', 403);
+    }
+
+    $db->prepare('UPDATE productos SET agotado = ? WHERE id_producto = ?')
+        ->execute([$agotado, $idProducto]);
+
+    logEvent(
+        ($agotado ? '86 agotado' : '86 disponible') . " producto #$idProducto",
+        'info'
+    );
+
+    jsonOk([
+        'id_producto' => $idProducto,
+        'agotado'     => $agotado === 1,
+    ]);
+}
+
+/** SSE: avisa cuando cambia el estado agotado del catálogo (~1 s). */
+function endpointCatalogoStream(array $payload): void {
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_buffering', 'off');
+    @set_time_limit(0);
+    while (ob_get_level() > 0) {
+        ob_end_flush();
+    }
+
+    header('Content-Type: text/event-stream; charset=utf-8');
+    header('Cache-Control: no-cache, no-transform');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+
+    $db = getDB();
+    $lastRevision = _catalogoAgotadoRevision($db);
+    $started = time();
+    $maxSeconds = 55;
+    $tick = 0;
+
+    echo ": connected\n\n";
+    flush();
+
+    while (!connection_aborted() && (time() - $started) < $maxSeconds) {
+        $revision = _catalogoAgotadoRevision($db);
+        if ($revision !== $lastRevision) {
+            $lastRevision = $revision;
+            echo 'event: update' . "\n";
+            echo 'data: ' . json_encode(['revision' => $revision], JSON_UNESCAPED_UNICODE) . "\n\n";
+            flush();
+        } elseif ($tick % 15 === 0) {
+            echo ': ping ' . time() . "\n\n";
+            flush();
+        }
+        $tick++;
+        sleep(1);
+    }
+    exit;
 }

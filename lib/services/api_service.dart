@@ -362,6 +362,68 @@ class ApiService extends ChangeNotifier {
     return int.parse((data['actualizadas'] ?? 0).toString());
   }
 
+  Future<bool> marcarLineaUrgente(
+    int idPedido,
+    int idLinea, {
+    required bool urgente,
+  }) async {
+    final data = await _request('POST', '/pedidos/$idPedido/urgente', body: {
+      'id_linea': idLinea,
+      'urgente': urgente,
+      'terminal_serie': await terminalSerie(),
+    });
+    return data['urgente'] == true;
+  }
+
+  /// SSE: emite cuando cambia la cola de pendientes de servir (cocina/barra).
+  /// Reconecta automáticamente si el servidor cierra la conexión (~55 s).
+  Stream<void> subscribeServicioPendientesUpdates() async* {
+    if (_token == null || _baseUrl.isEmpty) return;
+
+    while (true) {
+      try {
+        final uri = Uri.parse('$_baseUrl/servicio/stream');
+        final req = http.Request('GET', uri);
+        req.headers.addAll({
+          'Authorization': 'Bearer $_token',
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        });
+
+        final resp = await _httpClient
+            .send(req)
+            .timeout(const Duration(seconds: 90));
+        if (resp.statusCode == 401) {
+          _tokenExpirado = true;
+          notifyListeners();
+          return;
+        }
+        if (resp.statusCode != 200) {
+          await Future<void>.delayed(const Duration(seconds: 5));
+          continue;
+        }
+        _setReachable(true);
+
+        var buffer = '';
+        await for (final chunk in resp.stream.transform(utf8.decoder)) {
+          buffer += chunk;
+          while (true) {
+            final sep = buffer.indexOf('\n\n');
+            if (sep < 0) break;
+            final block = buffer.substring(0, sep);
+            buffer = buffer.substring(sep + 2);
+            if (block.contains('event: update')) {
+              yield null;
+            }
+          }
+        }
+      } catch (_) {
+        _setReachable(false);
+      }
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+  }
+
   /// Registra o actualiza el dispositivo actual en la tabla `dispositivos`.
   /// Se llama tras el login; los errores no interrumpen el flujo pero sí se
   /// imprimen en consola para facilitar el diagnóstico.
@@ -700,5 +762,61 @@ class ApiService extends ChangeNotifier {
   ///   - 'orden': int
   Future<void> reordenarCatalogo(List<Map<String, dynamic>> items) async {
     await _request('POST', '/catalogo/reordenar', body: {'items': items});
+  }
+
+  /// Marca o desmarca un producto como agotado (86) desde cocina/barra.
+  Future<void> marcarProductoAgotado(int idProducto, bool agotado) async {
+    await _request('POST', '/catalogo/agotado', body: {
+      'id_producto': idProducto,
+      'agotado': agotado ? 1 : 0,
+    });
+  }
+
+  /// SSE: emite cuando cambia el estado agotado del catálogo.
+  Stream<void> subscribeCatalogoUpdates() async* {
+    if (_token == null || _baseUrl.isEmpty) return;
+
+    while (true) {
+      try {
+        final uri = Uri.parse('$_baseUrl/catalogo/stream');
+        final req = http.Request('GET', uri);
+        req.headers.addAll({
+          'Authorization': 'Bearer $_token',
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        });
+
+        final resp = await _httpClient
+            .send(req)
+            .timeout(const Duration(seconds: 90));
+        if (resp.statusCode == 401) {
+          _tokenExpirado = true;
+          notifyListeners();
+          return;
+        }
+        if (resp.statusCode != 200) {
+          await Future<void>.delayed(const Duration(seconds: 5));
+          continue;
+        }
+        _setReachable(true);
+
+        var buffer = '';
+        await for (final chunk in resp.stream.transform(utf8.decoder)) {
+          buffer += chunk;
+          while (true) {
+            final sep = buffer.indexOf('\n\n');
+            if (sep < 0) break;
+            final block = buffer.substring(0, sep);
+            buffer = buffer.substring(sep + 2);
+            if (block.contains('event: update')) {
+              yield null;
+            }
+          }
+        }
+      } catch (_) {
+        _setReachable(false);
+      }
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
   }
 }

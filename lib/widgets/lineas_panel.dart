@@ -39,6 +39,7 @@ class LineasPanel extends StatefulWidget {
   final void Function(LineaPedido) onLineaTap;
   final void Function(LineaPedido) onLineaIncrement;
   final void Function(LineaPedido) onLineaDecrement;
+  final void Function(LineaPedido) onToggleUrgente;
 
   const LineasPanel({
     super.key,
@@ -47,6 +48,7 @@ class LineasPanel extends StatefulWidget {
     required this.onLineaTap,
     required this.onLineaIncrement,
     required this.onLineaDecrement,
+    required this.onToggleUrgente,
   });
 
   @override
@@ -137,6 +139,7 @@ class _LineasPanelState extends State<LineasPanel> {
                 setState(() => _indiceSeleccionado = null);
               }
             },
+            onToggleUrgente: () => widget.onToggleUrgente(l),
             backgroundColor:
                 i.isEven ? AppTheme.colorTarjeta : AppTheme.colorSuperficie,
           );
@@ -157,6 +160,7 @@ class _LineaTile extends StatelessWidget {
   final VoidCallback onLongPress;
   final VoidCallback onIncrement;
   final VoidCallback onDecrement;
+  final VoidCallback onToggleUrgente;
   final Color backgroundColor;
 
   const _LineaTile({
@@ -168,6 +172,7 @@ class _LineaTile extends StatelessWidget {
     required this.onLongPress,
     required this.onIncrement,
     required this.onDecrement,
+    required this.onToggleUrgente,
     required this.backgroundColor,
   });
 
@@ -186,16 +191,22 @@ class _LineaTile extends StatelessWidget {
     final mostrarCantidad =
         linea.cantidad > 1 && !cantidadEnControles;
 
+    final bordeIzquierdo = seleccionada
+        ? AppTheme.colorPrimario
+        : (linea.urgente ? AppTheme.colorUrgente : null);
+
     return GestureDetector(
       onTap: soloLectura ? null : onTap,
       onLongPress: soloLectura ? null : onLongPress,
       child: Container(
         decoration: BoxDecoration(
-          color: backgroundColor,
+          color: linea.urgente
+              ? AppTheme.colorUrgente.withValues(alpha: 0.08)
+              : backgroundColor,
           border: Border(
             bottom: const BorderSide(color: Colors.black26, width: 1),
-            left: seleccionada
-                ? BorderSide(color: AppTheme.colorPrimario, width: 3)
+            left: bordeIzquierdo != null
+                ? BorderSide(color: bordeIzquierdo, width: 3)
                 : BorderSide.none,
           ),
         ),
@@ -207,6 +218,11 @@ class _LineaTile extends StatelessWidget {
               children: [
                 if (esNota) ...[
                   Icon(Icons.edit_note, size: 15, color: Colors.amber[300]),
+                  const SizedBox(width: 4),
+                ],
+                if (linea.urgente) ...[
+                  Icon(Icons.priority_high,
+                      size: 18, color: AppTheme.colorUrgente),
                   const SizedBox(width: 4),
                 ],
                 Expanded(
@@ -256,6 +272,19 @@ class _LineaTile extends StatelessWidget {
                   _CantidadBoton(
                     icon: Icons.add,
                     onPressed: onIncrement,
+                  ),
+                ],
+                if (mostrarControles && !esNota) ...[
+                  const SizedBox(width: 4),
+                  _CantidadBoton(
+                    icon: linea.urgente
+                        ? Icons.notifications_active
+                        : Icons.notifications_none,
+                    onPressed: onToggleUrgente,
+                    color: linea.urgente
+                        ? AppTheme.colorUrgente
+                        : AppTheme.colorTextoGris,
+                    tooltip: linea.urgente ? 'Quitar urgente' : 'Marcar urgente',
                   ),
                 ],
                 // Mostrar precio para notas libres con precio
@@ -314,25 +343,32 @@ class _LineaTile extends StatelessWidget {
 class _CantidadBoton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
+  final Color? color;
+  final String? tooltip;
 
   const _CantidadBoton({
     required this.icon,
     required this.onPressed,
+    this.color,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppTheme.colorPrimario.withValues(alpha: 0.25),
+    final tint = color ?? AppTheme.colorPrimario;
+    final btn = Material(
+      color: tint.withValues(alpha: 0.25),
       borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: onPressed,
         borderRadius: BorderRadius.circular(6),
         child: Padding(
           padding: const EdgeInsets.all(4),
-          child: Icon(icon, size: 20, color: AppTheme.colorPrimario),
+          child: Icon(icon, size: 20, color: tint),
         ),
       ),
     );
+    if (tooltip == null) return btn;
+    return Tooltip(message: tooltip!, child: btn);
   }
 }

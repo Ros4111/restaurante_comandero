@@ -60,12 +60,66 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   /// Línea nueva creada al pulsar + sobre una línea guardada (id_linea → índice en [MesaProvider.lineas]).
   final Map<int, int> _duplicadaIndexPorLineaOriginal = {};
 
+  StreamSubscription<void>? _catalogoStreamSub;
+  Timer? _catalogoFallbackTimer;
+  Set<int> _agotadosConocidos = {};
+
   @override
   void initState() {
     super.initState();
     _api = context.read<ApiService>();
     _clienteCtrl.clear();
     _inicializarSesionMesa();
+    _iniciarSincronizacionCatalogo();
+  }
+
+  void _iniciarSincronizacionCatalogo() {
+    final cat = context.read<CatalogoProvider>();
+    _agotadosConocidos =
+        cat.productos.where((p) => p.agotado).map((p) => p.id).toSet();
+
+    _catalogoStreamSub?.cancel();
+    _catalogoStreamSub = _api.subscribeCatalogoUpdates().listen((_) {
+      if (mounted) _refrescarCatalogo();
+    });
+    _catalogoFallbackTimer?.cancel();
+    _catalogoFallbackTimer = Timer.periodic(
+      const Duration(seconds: 45),
+      (_) {
+        if (mounted) _refrescarCatalogo();
+      },
+    );
+  }
+
+  Future<void> _refrescarCatalogo() async {
+    try {
+      final data = await _api.getCatalogo();
+      if (!mounted) return;
+      final cat = context.read<CatalogoProvider>();
+      final antes = _agotadosConocidos;
+      cat.cargar(data);
+      final ahora =
+          cat.productos.where((p) => p.agotado).map((p) => p.id).toSet();
+      final nuevosAgotados = ahora.difference(antes);
+      _agotadosConocidos = ahora;
+      if (_pantallaLista && nuevosAgotados.isNotEmpty) {
+        final nombres = nuevosAgotados
+            .map((id) => cat.productoPorId(id)?.nombreProductoPantalla)
+            .whereType<String>()
+            .take(3)
+            .join(', ');
+        final extra = nuevosAgotados.length > 3
+            ? ' (+${nuevosAgotados.length - 3} más)'
+            : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('AGOTADO (86): $nombres$extra'),
+            backgroundColor: AppTheme.colorAgotado,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   Future<void> _inicializarSesionMesa() async {
@@ -91,6 +145,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   void dispose() {
     _pingTimer?.cancel();
     _debounceCliente?.cancel();
+    _catalogoStreamSub?.cancel();
+    _catalogoFallbackTimer?.cancel();
     // Ya NO llamamos _syncNombreCliente() aquí porque usa context
     // El valor ya está guardado en _nombreClienteLocal por cada onChange
     if (widget.bloqueadoPorMi && _salidaExplicita) {
@@ -648,6 +704,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   // ── Añadir producto ────────────────────────────────────────
   void onProductoTap(Producto p, BusquedaCatalogoPedido busq) {
     final catalogo = context.read<CatalogoProvider>();
+    if (!catalogo.productoPedible(p)) {
+      _showError('${p.nombreProductoPantalla} está AGOTADO (86)');
+      return;
+    }
     final opciones =
         busq.modo == ModoBusquedaCatalogoPedido.porFiltroOpciones &&
                 busq.tokensOpcion.isNotEmpty
@@ -658,6 +718,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   void onProductoLongPress(Producto p) async {
     final catalogo = context.read<CatalogoProvider>();
+    if (!catalogo.productoPedible(p)) {
+      _showError('${p.nombreProductoPantalla} está AGOTADO (86)');
+      return;
+    }
     final grupos = catalogo.gruposDeProducto(p.id);
 
     final result = await showDialog<Map<String, dynamic>>(
@@ -696,6 +760,24 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       required String comentario,
       required Map<int, OpcionElegida> opciones}) {
     final mesaPv = context.read<MesaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    if (mesaPv.lineas.isNotEmpty) {
+      final ultima = mesaPv.lineas.last;
+      if (_lineaMismaConfiguracionProducto(
+        catalogo,
+        ultima,
+        p,
+        comentario,
+        opciones,
+      )) {
+        mesaPv.modificarLinea(
+          ultima,
+          cantidad: ultima.cantidad + cantidad,
+          marcarEditada: !ultima.esNuevo,
+        );
+        return;
+      }
+    }
     mesaPv.agregarLinea(LineaPedido(
       idProducto: p.id,
       cantidad: cantidad,
@@ -895,10 +977,65 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     _ajustarIndicesDuplicadaTrasEliminar(idx);
   }
 
-  bool _esCopiaSesionActual(LineaPedido copia, LineaPedido original) =>
-      copia.idProducto == original.idProducto &&
-      copia.comentario == original.comentario &&
-      _opcionesIguales(copia.opcionesElegidas, original.opcionesElegidas);
+  bool _esCopiaSesionActual(LineaPedido copia, LineaPedido original) {
+    if (!copia.esNuevo || copia.idProducto != original.idProducto) {
+      return false;
+    }
+    final catalogo = context.read<CatalogoProvider>();
+    final producto = catalogo.productoPorId(original.idProducto);
+    if (producto == null) return false;
+    return _lineaMismaConfiguracionProducto(
+      catalogo,
+      copia,
+      producto,
+      original.comentario,
+      original.opcionesElegidas,
+    );
+  }
+
+  /// Mismo producto, comentario y opción efectiva en cada grupo del catálogo.
+  bool _lineaMismaConfiguracionProducto(
+    CatalogoProvider catalogo,
+    LineaPedido linea,
+    Producto producto,
+    String comentario,
+    Map<int, OpcionElegida> opcionesNuevas,
+  ) {
+    if (linea.esNotaLibre || linea.idProducto != producto.id) return false;
+    if (linea.comentario.trim() != comentario.trim()) return false;
+
+    for (final g in catalogo.gruposDeProducto(producto.id)) {
+      final nombreLinea = _nombreOpcionEfectiva(
+        catalogo,
+        producto.id,
+        g.id,
+        linea.opcionesElegidas,
+      );
+      final nombreNueva = _nombreOpcionEfectiva(
+        catalogo,
+        producto.id,
+        g.id,
+        opcionesNuevas,
+      );
+      if (nombreLinea != nombreNueva) return false;
+    }
+    return true;
+  }
+
+  String? _nombreOpcionEfectiva(
+    CatalogoProvider catalogo,
+    int idProducto,
+    int idGrupo,
+    Map<int, OpcionElegida> elegidas,
+  ) {
+    final directa = elegidas[idGrupo];
+    if (directa != null) return directa.nombre;
+    final opts = catalogo.opcionesDeGrupo(idProducto, idGrupo);
+    if (opts.isEmpty) return null;
+    final def =
+        opts.where((o) => o.predeterminado).firstOrNull ?? opts.firstOrNull;
+    return def?.nombreOpcion;
+  }
 
   void onLineaDecrement(LineaPedido linea) {
     final mesaPv = context.read<MesaProvider>();
@@ -908,6 +1045,44 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       mesaPv.modificarLinea(linea, cantidad: linea.cantidad - 1);
     } else {
       _eliminarLineaPedido(mesaPv, linea);
+    }
+  }
+
+  Future<void> onLineaToggleUrgente(LineaPedido linea) async {
+    final mesaPv = context.read<MesaProvider>();
+    if (!_puedeEditar(mesaPv) || linea.esNotaLibre) return;
+
+    final nuevo = !linea.urgente;
+    if (linea.esNuevo) {
+      mesaPv.modificarLinea(linea, urgente: nuevo);
+      return;
+    }
+
+    final idLinea = linea.idLinea;
+    if (idLinea == null) return;
+
+    try {
+      await _api.marcarLineaUrgente(
+        widget.idPedido,
+        idLinea,
+        urgente: nuevo,
+      );
+      if (!mounted) return;
+      mesaPv.modificarLinea(linea, urgente: nuevo);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            nuevo
+                ? 'Marcado como urgente — cocina/barra lo verá arriba'
+                : 'Urgente quitado',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } on ApiException catch (e) {
+      _showError(e.message);
+    } catch (e) {
+      _showError(e.toString());
     }
   }
 
@@ -1186,6 +1361,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
                             onLineaTap: onLineaTap,
                             onLineaIncrement: onLineaIncrement,
                             onLineaDecrement: onLineaDecrement,
+                            onToggleUrgente: onLineaToggleUrgente,
                           ),
                         ),
                       ],

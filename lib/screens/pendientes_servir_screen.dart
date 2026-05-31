@@ -31,11 +31,14 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
   bool _marcando = false;
   String? _error;
   int _deltaFuente = 0;
-  Timer? _autoRefreshTimer;
+  StreamSubscription<void>? _servicioStreamSub;
+  StreamSubscription<void>? _catalogoStreamSub;
+  Timer? _fallbackRefreshTimer;
   bool _actualizando = false;
   bool _cargaInicialHecha = false;
   Set<int> _lineasConocidas = {};
   Set<String> _gruposConocidos = {};
+  Set<int> _lineasUrgentesConocidas = {};
   AudioPlayer? _avisoPlayer;
 
   double _fs(double base) => (base + _deltaFuente).clamp(9.0, 36.0).toDouble();
@@ -59,17 +62,41 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     super.initState();
     _avisoPlayer = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
     _cargar();
-    _autoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 10),
+    _iniciarSincronizacionTiempoReal();
+  }
+
+  void _iniciarSincronizacionTiempoReal() {
+    final api = context.read<ApiService>();
+    _servicioStreamSub?.cancel();
+    _servicioStreamSub = api.subscribeServicioPendientesUpdates().listen((_) {
+      if (!_marcando && mounted) _cargar(silencioso: true);
+    });
+    _catalogoStreamSub?.cancel();
+    _catalogoStreamSub = api.subscribeCatalogoUpdates().listen((_) {
+      if (mounted) _refrescarCatalogoSilencioso();
+    });
+    // Respaldo si SSE no está disponible (proxy, timeout, etc.)
+    _fallbackRefreshTimer?.cancel();
+    _fallbackRefreshTimer = Timer.periodic(
+      const Duration(seconds: 45),
       (_) {
         if (!_marcando && mounted) _cargar(silencioso: true);
       },
     );
   }
 
+  Future<void> _refrescarCatalogoSilencioso() async {
+    try {
+      final data = await context.read<ApiService>().getCatalogo();
+      if (mounted) context.read<CatalogoProvider>().cargar(data);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
-    _autoRefreshTimer?.cancel();
+    _servicioStreamSub?.cancel();
+    _catalogoStreamSub?.cancel();
+    _fallbackRefreshTimer?.cancel();
     _avisoPlayer?.dispose();
     super.dispose();
   }
@@ -87,22 +114,45 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
       final lista = await context.read<ApiService>().getServicioPendientes();
       if (!mounted) return;
 
+      lista.sort((a, b) {
+        if (a.tieneUrgente != b.tieneUrgente) {
+          return a.tieneUrgente ? -1 : 1;
+        }
+        return a.horaPedido.compareTo(b.horaPedido);
+      });
+      for (final p in lista) {
+        p.lineas.sort((a, b) {
+          if (a.urgente != b.urgente) return a.urgente ? -1 : 1;
+          return a.nombre.compareTo(b.nombre);
+        });
+      }
+
       final lineasActuales = {
         for (final p in lista)
           for (final l in p.lineas)
             for (final id in l.idsLinea)
               id,
       };
+      final urgentesActuales = {
+        for (final p in lista)
+          for (final l in p.lineas)
+            if (l.urgente) ...l.idsLinea,
+      };
       final gruposActuales = lista.map((p) => p.idGrupo).toSet();
       final lineasNuevas = lineasActuales.difference(_lineasConocidas);
       final gruposNuevos = gruposActuales.difference(_gruposConocidos);
+      final urgentesNuevos =
+          urgentesActuales.difference(_lineasUrgentesConocidas);
       final hayNovedad = _cargaInicialHecha &&
           (lineasNuevas.isNotEmpty || gruposNuevos.isNotEmpty);
+      final hayUrgenteNuevo =
+          _cargaInicialHecha && urgentesNuevos.isNotEmpty;
 
       setState(() {
         _pedidos = lista;
         _lineasConocidas = lineasActuales;
         _gruposConocidos = gruposActuales;
+        _lineasUrgentesConocidas = urgentesActuales;
         _cargaInicialHecha = true;
         _seleccion.removeWhere(
           (clave, _) => !lista.any((p) => _claveSeleccion(p) == clave),
@@ -117,12 +167,13 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
         if (!silencioso) _cargando = false;
       });
 
-      if (hayNovedad) {
+      if (hayNovedad || hayUrgenteNuevo) {
         debugPrint(
           '[pendientes_servir] Novedad: ${lineasNuevas.length} línea(s), '
-          '${gruposNuevos.length} lote(s)',
+          '${gruposNuevos.length} lote(s), '
+          '${urgentesNuevos.length} urgente(s)',
         );
-        unawaited(_sonidoPedidoNuevo());
+        unawaited(_sonidoPedidoNuevo(repetir: hayUrgenteNuevo));
       }
     } catch (e) {
       if (!mounted) return;
@@ -136,25 +187,98 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     }
   }
 
-  Future<void> _sonidoPedidoNuevo() async {
-    final player = _avisoPlayer;
-    if (player != null) {
+  Future<void> _preguntarAgotado(LineaPendienteServir l) async {
+    if (l.idProducto <= 0 || _marcando) return;
+    final catalogo = context.read<CatalogoProvider>();
+    final prod = catalogo.productoPorId(l.idProducto);
+    final nombre = prod?.nombreProductoPantalla ?? l.nombre;
+    final yaAgotado = prod?.agotado ?? false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: Text(
+          yaAgotado ? 'Quitar 86' : 'Marcar 86',
+          style: const TextStyle(color: AppTheme.colorTexto),
+        ),
+        content: Text(
+          yaAgotado
+              ? '¿Volver a ofrecer «$nombre»?'
+              : '¿Marcar «$nombre» como AGOTADO (86)?\n'
+                  'Los camareros no podrán pedirlo.',
+          style: const TextStyle(color: AppTheme.colorTextoGris),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              yaAgotado ? 'Disponible' : '86',
+              style: TextStyle(
+                color: yaAgotado ? AppTheme.colorPrimario : AppTheme.colorAgotado,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await context
+          .read<ApiService>()
+          .marcarProductoAgotado(l.idProducto, !yaAgotado);
+      catalogo.setAgotadoLocal(l.idProducto, !yaAgotado);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            yaAgotado ? 'Disponible: $nombre' : '86 — AGOTADO: $nombre',
+          ),
+          backgroundColor:
+              yaAgotado ? AppTheme.colorPrimario : AppTheme.colorAgotado,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red[800],
+        ),
+      );
+    }
+  }
+
+  Future<void> _sonidoPedidoNuevo({bool repetir = false}) async {
+    Future<void> playOnce() async {
+      final player = _avisoPlayer;
+      if (player != null) {
+        try {
+          await player.stop();
+          await player.play(
+            AssetSource('cocina.mp3'),
+            volume: 1.0,
+          );
+          return;
+        } catch (e) {
+          debugPrint('[pendientes_servir] audioplayers: $e');
+        }
+      }
       try {
-        await player.stop();
-        await player.play(
-          AssetSource('cocina.mp3'),
-          volume: 1.0,
-        );
-        return;
+        await SystemSound.play(SystemSoundType.alert);
       } catch (e) {
-        debugPrint('[pendientes_servir] audioplayers: $e');
+        debugPrint('[pendientes_servir] SystemSound: $e');
       }
     }
 
-    try {
-      await SystemSound.play(SystemSoundType.alert);
-    } catch (e) {
-      debugPrint('[pendientes_servir] SystemSound: $e');
+    await playOnce();
+    if (repetir) {
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      await playOnce();
     }
   }
 
@@ -373,11 +497,18 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
     final hora = pedido.horaPedido.trim();
     final tieneModificadas =
         pedido.lineas.any((l) => l.modificado);
+    final esUrgente = pedido.tieneUrgente;
     return Card(
       color: tieneModificadas
           ? const Color(0xFF1E3324)
-          : AppTheme.colorTarjeta,
+          : (esUrgente ? const Color(0xFF2A2218) : AppTheme.colorTarjeta),
       clipBehavior: Clip.antiAlias,
+      shape: esUrgente
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: AppTheme.colorUrgente, width: 2),
+            )
+          : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -386,7 +517,9 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             color: tieneModificadas
                 ? const Color(0xFF2A4030)
-                : const Color(0xFF2A3344),
+                : (esUrgente
+                    ? const Color(0xFF3D2E18)
+                    : const Color(0xFF2A3344)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -400,7 +533,9 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: AppTheme.colorPrimario,
+                        color: esUrgente
+                            ? AppTheme.colorUrgente
+                            : AppTheme.colorPrimario,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -412,6 +547,28 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                         ),
                       ),
                     ),
+                    if (esUrgente) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.colorUrgente.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppTheme.colorUrgente),
+                        ),
+                        child: Text(
+                          'URGENTE',
+                          style: TextStyle(
+                            color: AppTheme.colorUrgente,
+                            fontSize: _fs(11),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 6),
                     TextButton(
                       onPressed: _marcando || pedido.lineas.isEmpty
@@ -499,9 +656,12 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
             .where((n) => n.isNotEmpty)
             .toList();
     final subtitulo = _subtituloLinea(l, opciones);
+    final prodAgotado = catalogo.productoPorId(l.idProducto)?.agotado ?? false;
     final colorLinea = l.modificado
         ? AppTheme.colorLineasModificadas
-        : AppTheme.colorTexto;
+        : (l.urgente
+            ? AppTheme.colorUrgente
+            : (prodAgotado ? AppTheme.colorAgotado : AppTheme.colorTexto));
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: DecoratedBox(
@@ -513,11 +673,28 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                   color: AppTheme.colorLineasModificadas.withValues(alpha: 0.5),
                 ),
               )
-            : const BoxDecoration(),
+            : l.urgente
+                ? BoxDecoration(
+                    color: AppTheme.colorUrgente.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: AppTheme.colorUrgente.withValues(alpha: 0.55),
+                    ),
+                  )
+                : prodAgotado
+                    ? BoxDecoration(
+                        color: AppTheme.colorAgotado.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: AppTheme.colorAgotado.withValues(alpha: 0.45),
+                        ),
+                      )
+                    : const BoxDecoration(),
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: l.modificado ? 6 : 0,
-            vertical: l.modificado ? 4 : 0,
+            horizontal:
+                l.modificado || l.urgente || prodAgotado ? 6 : 0,
+            vertical: l.modificado || l.urgente || prodAgotado ? 4 : 0,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,25 +707,65 @@ class _PendientesServirScreenState extends State<PendientesServirScreen> {
                 visualDensity: VisualDensity.compact,
                 activeColor: l.modificado
                     ? AppTheme.colorLineasModificadas
-                    : null,
+                    : (l.urgente ? AppTheme.colorUrgente : null),
               ),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      titulo,
-                      style: TextStyle(
-                        fontSize: _fs(15),
-                        color: colorLinea,
-                        fontWeight: l.modificado
-                            ? FontWeight.w600
-                            : FontWeight.normal,
+                child: GestureDetector(
+                  onLongPress: l.idProducto > 0 && !_marcando
+                      ? () => _preguntarAgotado(l)
+                      : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          if (l.urgente) ...[
+                            Icon(Icons.priority_high,
+                                size: _fs(16), color: AppTheme.colorUrgente),
+                            const SizedBox(width: 2),
+                          ],
+                          if (prodAgotado) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              margin: const EdgeInsets.only(right: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.colorAgotado
+                                    .withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(3),
+                                border:
+                                    Border.all(color: AppTheme.colorAgotado),
+                              ),
+                              child: Text(
+                                '86',
+                                style: TextStyle(
+                                  fontSize: _fs(11),
+                                  color: AppTheme.colorAgotado,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                          Expanded(
+                            child: Text(
+                              titulo,
+                              style: TextStyle(
+                                fontSize: _fs(15),
+                                color: colorLinea,
+                                fontWeight: l.modificado ||
+                                        l.urgente ||
+                                        prodAgotado
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    if (subtitulo != null) subtitulo,
-                  ],
+                      if (subtitulo != null) subtitulo,
+                    ],
+                  ),
                 ),
               ),
             ],

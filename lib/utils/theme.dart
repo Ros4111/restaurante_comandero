@@ -14,6 +14,9 @@ class AppTheme {
   static const colorLineasViejas = Colors.white;
   /// Líneas modificadas tras envío (cocina / pendientes de servir).
   static const colorLineasModificadas = Color(0xFF66BB6A);
+  static const colorUrgente = Color(0xFFFF9100);
+  /// Producto marcado 86 / agotado temporalmente.
+  static const colorAgotado = Color(0xFFE53935);
 
   static ThemeData get dark => ThemeData(
         brightness: Brightness.dark,
