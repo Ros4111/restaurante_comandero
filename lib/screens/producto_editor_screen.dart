@@ -1,6 +1,4 @@
 // lib/screens/producto_editor_screen.dart
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -79,7 +77,6 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   List<Map<String, dynamic>> _listaBusqueda = [];
   String _campoBusqueda = 'todo'; // 'todo' | 'pantalla' | 'barra' | 'cliente'
   int? _idCategoriaFiltro; // null = todas
-  Timer? _debounceBuscar;
   bool _cargandoLista = false;
   bool _guardando = false;
   String? _error;
@@ -158,7 +155,6 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
 
   @override
   void dispose() {
-    _debounceBuscar?.cancel();
     _disposeFilasOpciones();
     _nombreCtrl.dispose();
     _textoImprimirBarraCocinaCtrl.dispose();
@@ -244,10 +240,7 @@ class _ProductoEditorScreenState extends State<ProductoEditorScreen> {
   }
 
   void _onBuscarChanged(String v) {
-    _debounceBuscar?.cancel();
-    _debounceBuscar = Timer(const Duration(milliseconds: 150), () {
-      if (mounted) setState(() {});
-    });
+    setState(() {});
   }
 
   Future<void> _cargarProducto(int id) async {

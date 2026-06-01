@@ -326,11 +326,31 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 : null;
             $idProdNuevo = (int)$n['id_producto'];
             $txtProd = _textosProductoParaPedido($db, $idProdNuevo);
-            $calc = _calcularPrecioLinea(
-                $db,
-                $idProdNuevo,
-                is_array($opcionesDecoded) ? $opcionesDecoded : []
-            );
+            $sinCargo = !empty($n['sin_cargo']);
+            $suplementoExtra = isset($n['suplemento_sin_iva'])
+                ? max(0.0, (float)$n['suplemento_sin_iva'])
+                : 0.0;
+            if ($sinCargo) {
+                $stPct = $db->prepare(
+                    'SELECT COALESCE(porcentaje_IVA, 0) FROM productos WHERE id_producto = ?'
+                );
+                $stPct->execute([$idProdNuevo]);
+                $pctIVA = (float)($stPct->fetchColumn() ?? 0);
+                $calc = ['precio' => 0.0, 'porcentaje_IVA' => $pctIVA];
+            } else {
+                $calc = _calcularPrecioLinea(
+                    $db,
+                    $idProdNuevo,
+                    is_array($opcionesDecoded) ? $opcionesDecoded : []
+                );
+                $descMenu = isset($n['descuento_menu_bebida_pct'])
+                    ? max(0.0, min(100.0, (float)$n['descuento_menu_bebida_pct']))
+                    : 0.0;
+                if ($descMenu > 0) {
+                    $calc['precio'] = round($calc['precio'] * (1.0 - $descMenu / 100.0), 6);
+                }
+                $calc['precio'] = round($calc['precio'] + $suplementoExtra, 6);
+            }
             $impIVALinea = round($calc['precio'] * $calc['porcentaje_IVA'] / 100, 4);
             $stIns->execute([
                 $idPedido,
@@ -397,14 +417,9 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         }
 
         // Si el pedido queda sin líneas, eliminar cabecera (mesa abierta sin productos).
-        $stCount = $db->prepare('SELECT COUNT(*) AS c FROM pedido_detalles WHERE id_pedido = ?');
-        $stCount->execute([$idPedido]);
-        $sinLineas = ((int)($stCount->fetch()['c'] ?? 0)) === 0;
+        $pedidoEliminado = eliminarPedidoSiSinDetalles($db, $idPedido);
 
-        if ($sinLineas) {
-            $db->prepare('DELETE FROM pedido_cabecera WHERE id_pedido = ?')
-               ->execute([$idPedido]);
-        } else {
+        if (!$pedidoEliminado) {
             // Recalcular totales (PVP unitario a 2 dec. × cantidad, coherente con ticket)
             $tot = _totalesPedidoDesdeDetalles($db, $idPedido);
             $baseImp = $tot['base_imponible'];
@@ -445,7 +460,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         }
 
         $db->commit();
-        jsonOk(['guardado' => true]);
+        jsonOk(['guardado' => true, 'pedido_eliminado' => $pedidoEliminado]);
     } catch (Throwable $e) {
         $db->rollBack();
         logEvent('Error guardar pedido ' . $idPedido . ': ' . $e->getMessage(), 'error');

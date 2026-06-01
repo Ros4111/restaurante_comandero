@@ -80,6 +80,16 @@ if ($uri === '/catalogo/stream' && $method === 'GET') {
     endpointCatalogoStream($payload);
 }
 
+// Menú del Día
+if ($uri === '/menu-dia' && $method === 'GET') {
+    require __DIR__ . '/endpoints/menu_dia.php';
+    endpointMenuDiaGet($payload);
+}
+if ($uri === '/menu-dia' && $method === 'POST') {
+    require __DIR__ . '/endpoints/menu_dia.php';
+    endpointMenuDiaGuardar($payload);
+}
+
 // Usuarios admin
 if ($uri === '/usuarios/admin/lista' && $method === 'GET') {
     require __DIR__ . '/endpoints/usuarios.php';

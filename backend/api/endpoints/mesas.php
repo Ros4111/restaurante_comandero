@@ -117,13 +117,36 @@ function endpointMesaBloquear(array $payload, int $idPedido): void {
     }
 }
 
-// ── Desbloquear al salir sin guardar ──────────────────────────
+// ── Desbloquear al salir (si no hay líneas en BD, elimina el pedido) ──
 function endpointMesaDesbloquear(array $payload, int $idPedido): void {
     $body = getBody();
     $terminalSerie = terminalSerieDesdeBody($body);
     $db = getDB();
-    liberarBloqueoMesaTerminal($db, $idPedido, $terminalSerie);
-    jsonOk(['desbloqueado' => true]);
+    $db->beginTransaction();
+    try {
+        $st = $db->prepare(
+            'SELECT id_pedido FROM pedido_cabecera WHERE id_pedido = ? FOR UPDATE'
+        );
+        $st->execute([$idPedido]);
+        if (!$st->fetch()) {
+            $db->rollBack();
+            jsonOk(['desbloqueado' => true, 'pedido_eliminado' => false]);
+            return;
+        }
+
+        if (eliminarPedidoSiSinDetalles($db, $idPedido)) {
+            $db->commit();
+            jsonOk(['desbloqueado' => true, 'pedido_eliminado' => true]);
+            return;
+        }
+
+        liberarBloqueoMesaTerminal($db, $idPedido, $terminalSerie);
+        $db->commit();
+        jsonOk(['desbloqueado' => true, 'pedido_eliminado' => false]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        jsonError('Error al desbloquear: ' . $e->getMessage(), 500);
+    }
 }
 
 // ── Ping de bloqueo (cada minuto) ─────────────────────────────

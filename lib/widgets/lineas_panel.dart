@@ -130,8 +130,18 @@ class _LineasPanelState extends State<LineasPanel> {
             catalogo: catalogo,
             soloLectura: widget.soloLectura,
             seleccionada: _indiceSeleccionado == i,
-            onTap: () => _seleccionar(i),
-            onLongPress: () => widget.onLineaTap(l),
+            onTap: l.esDetalleMenuDelDia
+                ? null
+                : () {
+                    if (l.esCabeceraMenuDelDia) {
+                      widget.onLineaTap(l);
+                    } else {
+                      _seleccionar(i);
+                    }
+                  },
+            onLongPress: l.esDetalleMenuDelDia
+                ? null
+                : () => widget.onLineaTap(l),
             onIncrement: () => widget.onLineaIncrement(l),
             onDecrement: () {
               widget.onLineaDecrement(l);
@@ -156,8 +166,8 @@ class _LineaTile extends StatelessWidget {
   final CatalogoProvider catalogo;
   final bool soloLectura;
   final bool seleccionada;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final VoidCallback onIncrement;
   final VoidCallback onDecrement;
   final VoidCallback onToggleUrgente;
@@ -181,12 +191,18 @@ class _LineaTile extends StatelessWidget {
     final opcionesPanel = _opcionesAMostrarEnPanel(linea, catalogo);
     final esNuevo = linea.esNuevo;
     final esNota = linea.esNotaLibre;
-    final color = linea.editada
-        ? Colors.green
-        : (esNuevo ? AppTheme.colorLineasNuevas : AppTheme.colorLineasViejas);
+    final esComponente = linea.esComponenteMenu || linea.esDetalleMenuDelDia;
+    final esDetalleMenu = linea.esDetalleMenuDelDia;
+    final esCabeceraMenu = linea.esCabeceraMenuDelDia;
+    final color = esComponente
+        ? AppTheme.colorTextoGris
+        : (linea.editada
+            ? Colors.green
+            : (esNuevo ? AppTheme.colorLineasNuevas : AppTheme.colorLineasViejas));
     final notaColor = esNota ? Colors.amber[300]! : color;
 
-    final mostrarControles = seleccionada && !soloLectura;
+    final mostrarControles =
+        seleccionada && !soloLectura && !esDetalleMenu && !esCabeceraMenu;
     final cantidadEnControles = mostrarControles && esNuevo;
     final mostrarCantidad =
         linea.cantidad > 1 && !cantidadEnControles;
@@ -196,8 +212,9 @@ class _LineaTile extends StatelessWidget {
         : (linea.urgente ? AppTheme.colorUrgente : null);
 
     return GestureDetector(
-      onTap: soloLectura ? null : onTap,
-      onLongPress: soloLectura ? null : onLongPress,
+      onTap: soloLectura || onTap == null ? null : onTap,
+      onLongPress:
+          soloLectura || esDetalleMenu || onLongPress == null ? null : onLongPress,
       child: Container(
         decoration: BoxDecoration(
           color: linea.urgente
@@ -224,6 +241,12 @@ class _LineaTile extends StatelessWidget {
                   Icon(Icons.priority_high,
                       size: 18, color: AppTheme.colorUrgente),
                   const SizedBox(width: 4),
+                ],
+                if (esComponente) ...[
+                  Text(
+                    '↳ ',
+                    style: TextStyle(color: AppTheme.colorTextoGris, fontSize: 16),
+                  ),
                 ],
                 Expanded(
                   child: Text(

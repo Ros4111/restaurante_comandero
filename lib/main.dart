@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/api_service.dart';
 import 'services/catalogo_provider.dart';
+import 'services/menu_dia_provider.dart';
 import 'utils/theme.dart';
 import 'screens/config_screen.dart';
 import 'screens/login_screen.dart';
@@ -26,6 +27,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => ApiService()..setBaseUrl(savedUrl)),
         ChangeNotifierProvider(create: (_) => SesionProvider()),
         ChangeNotifierProvider(create: (_) => CatalogoProvider()),
+        ChangeNotifierProvider(create: (_) => MenuDelDiaProvider()),
         ChangeNotifierProvider(create: (_) => MesaProvider()),
       ],
       child: const RestauranteApp(),

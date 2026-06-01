@@ -16,6 +16,7 @@ import 'dictado_screen.dart';
 import 'historico_mesas_screen.dart';
 import 'nfc_screen.dart';
 import 'producto_editor_screen.dart';
+import 'menu_dia_config_screen.dart';
 import 'reordenar_productos_screen.dart';
 import 'usuarios_crud_screen.dart';
 
@@ -71,6 +72,15 @@ class SettingsMenuScreen extends StatelessWidget {
       context,
       MaterialPageRoute(
         builder: (_) => const ReordenarProductosScreen(),
+      ),
+    );
+  }
+
+  void _openMenuDelDia(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const MenuDiaConfigScreen(),
       ),
     );
   }
@@ -153,6 +163,16 @@ class SettingsMenuScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
+              if (sesion.esSupervisor)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openMenuDelDia(context),
+                    icon: const Icon(Icons.restaurant_menu),
+                    label: const Text('Menú del Día (configurar)'),
+                  ),
+                ),
+              if (sesion.esSupervisor) const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(

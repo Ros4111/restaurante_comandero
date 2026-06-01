@@ -83,6 +83,52 @@ function ensureAgotadoColumnProductos(PDO $db): void {
     }
 }
 
+function ensureMenuDelDiaTables(PDO $db): void {
+    try {
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS menu_dia (
+                fecha DATE NOT NULL PRIMARY KEY,
+                activo TINYINT(1) NOT NULL DEFAULT 1,
+                suplemento_bebida_libre_sin_iva DECIMAL(8,4) NOT NULL DEFAULT 0,
+                notas VARCHAR(255) DEFAULT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+        );
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS menu_dia_producto (
+                fecha DATE NOT NULL,
+                grupo VARCHAR(20) NOT NULL,
+                id_producto INT UNSIGNED NOT NULL,
+                orden INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (fecha, grupo, id_producto),
+                KEY idx_menu_dia_fecha_grupo (fecha, grupo)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+        );
+    } catch (Throwable $e) {
+        // El endpoint devolverá error claro si faltan tablas.
+    }
+    try {
+        $check = $db->query(
+            "SHOW COLUMNS FROM menu_dia LIKE 'descuento_bebida_alternativa_pct'"
+        );
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                'ALTER TABLE menu_dia ADD COLUMN descuento_bebida_alternativa_pct DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER suplemento_bebida_libre_sin_iva'
+            );
+        }
+    } catch (Throwable $e) {
+    }
+}
+
+/** id_producto del producto cabecera Menú del Día (filtro menu_dia). */
+function idProductoMenuDelDia(PDO $db): ?int {
+    ensureAgotadoColumnProductos($db);
+    $st = $db->query(
+        "SELECT id_producto FROM productos WHERE filtro = 'menu_dia' AND disponible = 1 LIMIT 1"
+    );
+    $id = $st ? $st->fetchColumn() : false;
+    return $id !== false ? (int)$id : null;
+}
+
 function getBody(): array {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw ?: '{}', true);
@@ -216,6 +262,24 @@ function liberarBloqueoMesaTerminal(PDO $db, int $idPedido, string $terminalSeri
           WHERE id_pedido = ?
             AND terminal_serie_bloqueo = ?'
     )->execute([$idPedido, $terminalSerie]);
+}
+
+/**
+ * Si el pedido no tiene líneas en pedido_detalles, elimina pedido_cabecera.
+ * @return bool true si se eliminó la cabecera
+ */
+function eliminarPedidoSiSinDetalles(PDO $db, int $idPedido): bool {
+    $st = $db->prepare(
+        'SELECT COUNT(*) FROM pedido_detalles WHERE id_pedido = ?'
+    );
+    $st->execute([$idPedido]);
+    if (((int)$st->fetchColumn()) > 0) {
+        return false;
+    }
+    $stDel = $db->prepare('DELETE FROM pedido_cabecera WHERE id_pedido = ?');
+    $stDel->execute([$idPedido]);
+
+    return $stDel->rowCount() > 0;
 }
 
 /**

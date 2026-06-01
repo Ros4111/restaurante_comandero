@@ -11,6 +11,7 @@ import '../services/catalogo_provider.dart';
 import '../services/sunmi_service.dart';
 import '../utils/mesa_bloqueo.dart';
 import '../utils/theme.dart';
+import '../widgets/tecla_numerica_button.dart';
 import 'hacer_pedido_screen.dart';
 import 'login_screen.dart';
 import 'mesa_movimientos_screen.dart';
@@ -687,8 +688,6 @@ class _MesasScreenState extends State<MesasScreen> {
               : LayoutBuilder(
                   builder: (ctx, c) {
                     const spacing = 12.0;
-                    final tileWidth = (c.maxWidth - 32 - (spacing * 2)) / 3;
-                    final baseHeight = tileWidth / 1.1;
                     return GridView.builder(
                         padding: const EdgeInsets.all(16),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -709,32 +708,6 @@ class _MesasScreenState extends State<MesasScreen> {
                                 : () => _mostrarOpcionesMesa(m),
                           );
                         });
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Wrap(
-                        spacing: spacing,
-                        runSpacing: spacing,
-                        children: _mesas.map((m) {
-                          final tieneNombre =
-                              (m.nombreCliente ?? '').trim().isNotEmpty;
-                          final tileHeight =
-                              tieneNombre ? baseHeight + 22 : baseHeight;
-                          return SizedBox(
-                            width: tileWidth,
-                            height: tileHeight,
-                            child: _MesaTile(
-                              mesa: m,
-                              terminalSerieActual: _terminalSerie,
-                              onTap:
-                                  _cargandoMesa ? null : () => _entrarMesa(m),
-                              onLongPress: _cargandoMesa
-                                  ? null
-                                  : () => _mostrarOpcionesMesa(m),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    );
                   },
                 ),
     );
@@ -1085,18 +1058,15 @@ class _BotonNumMesa extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return TeclaNumericaButton(
       color: const Color(0xFF2A2A2A),
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-                color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
-          ),
+      onTap: onTap,
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 36,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -1113,14 +1083,10 @@ class _BotonAccionMesa extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return TeclaNumericaButton(
       color: color,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Center(child: child),
-      ),
+      onTap: onTap,
+      child: child,
     );
   }
 }

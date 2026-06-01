@@ -8,12 +8,14 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/cashlogy_service.dart';
 import '../services/catalogo_provider.dart';
+import '../services/menu_dia_provider.dart';
 import '../utils/busqueda_texto.dart';
 import '../utils/mesa_bloqueo.dart';
 import '../utils/precio_redondeo.dart';
 import '../utils/theme.dart';
 import '../widgets/catalogo_panel.dart';
 import '../widgets/lineas_panel.dart';
+import '../widgets/menu_del_dia_dialog.dart';
 import '../widgets/producto_opciones_dialog.dart';
 import 'package:restaurante_tpv/screens/reparto_comensales_screen.dart';
 import 'package:restaurante_tpv/services/sunmi_service.dart';
@@ -60,6 +62,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   /// Línea nueva creada al pulsar + sobre una línea guardada (id_linea → índice en [MesaProvider.lineas]).
   final Map<int, int> _duplicadaIndexPorLineaOriginal = {};
 
+  int _nextMenuGrupoLocal = 1;
+
   StreamSubscription<void>? _catalogoStreamSub;
   Timer? _catalogoFallbackTimer;
   Set<int> _agotadosConocidos = {};
@@ -102,6 +106,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
           cat.productos.where((p) => p.agotado).map((p) => p.id).toSet();
       final nuevosAgotados = ahora.difference(antes);
       _agotadosConocidos = ahora;
+      try {
+        final menuData = await _api.getMenuDia();
+        if (mounted) context.read<MenuDelDiaProvider>().cargar(menuData);
+      } catch (_) {}
+      if (!mounted) return;
       if (_pantallaLista && nuevosAgotados.isNotEmpty) {
         final nombres = nuevosAgotados
             .map((id) => cat.productoPorId(id)?.nombreProductoPantalla)
@@ -440,7 +449,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         mesaPv.lineas.where((l) => l.moverAMesa != null).toList();
 
     try {
-      await api.guardarPedido(
+      final resp = await api.guardarPedido(
         widget.idPedido,
         mesaPv.lineasParaEnviar(),
         nombreCliente: mesaPv.nombreCliente,
@@ -472,7 +481,8 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
         );
       }
 
-      final pedidoBorrado = mesaPv.lineas.isEmpty;
+      final pedidoBorrado = resp['pedido_eliminado'] == true ||
+          resp['pedido_eliminado']?.toString() == '1';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
@@ -703,6 +713,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   // ── Añadir producto ────────────────────────────────────────
   void onProductoTap(Producto p, BusquedaCatalogoPedido busq) {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    if (menuPv.esProductoMenu(p)) {
+      _abrirMenuDelDia(p);
+      return;
+    }
     final catalogo = context.read<CatalogoProvider>();
     if (!catalogo.productoPedible(p)) {
       _showError('${p.nombreProductoPantalla} está AGOTADO (86)');
@@ -717,6 +732,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   void onProductoLongPress(Producto p) async {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    if (menuPv.esProductoMenu(p)) {
+      _abrirMenuDelDia(p);
+      return;
+    }
     final catalogo = context.read<CatalogoProvider>();
     if (!catalogo.productoPedible(p)) {
       _showError('${p.nombreProductoPantalla} está AGOTADO (86)');
@@ -787,6 +807,190 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       textoImprimirBarraCocina: p.textoImprimirBarraCocina,
       orden: 0,
     ));
+  }
+
+  Future<void> _abrirMenuDelDia(Producto p) async {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    final cfg = menuPv.config;
+    if (cfg == null || !menuPv.activoHoy) {
+      _showError('Menú del día no configurado para hoy');
+      return;
+    }
+    if (!catalogo.productoPedible(p)) {
+      _showError('${p.nombreProductoPantalla} está AGOTADO (86)');
+      return;
+    }
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MenuDelDiaDialog(
+          productoMenu: p,
+          config: cfg,
+          catalogo: catalogo,
+        ),
+      ),
+    );
+    if (result == null) return;
+    _addMenuDelDia(p, cfg, result);
+  }
+
+  int _nuevoMenuGrupoLocal() => _nextMenuGrupoLocal++;
+
+  List<LineaPedido> _lineasGrupoMenu(MesaProvider mesaPv, int grupo) =>
+      mesaPv.lineas.where((l) => l.menuGrupoLocal == grupo).toList();
+
+  bool _grupoMenuSinGuardar(MesaProvider mesaPv, int grupo) {
+    final ls = _lineasGrupoMenu(mesaPv, grupo);
+    return ls.isNotEmpty && ls.every((l) => l.esNuevo);
+  }
+
+  void _eliminarGrupoMenu(MesaProvider mesaPv, int grupo) {
+    for (final l in _lineasGrupoMenu(mesaPv, grupo).toList()) {
+      final idx = mesaPv.lineas.indexOf(l);
+      mesaPv.eliminarLinea(l);
+      if (idx >= 0) _ajustarIndicesDuplicadaTrasEliminar(idx);
+    }
+  }
+
+  Future<void> _editarMenuDelDia(LineaPedido cabecera) async {
+    final seleccion = cabecera.menuDelDiaSeleccion;
+    final grupo = cabecera.menuGrupoLocal;
+    if (seleccion == null || grupo == null) return;
+
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    final cfg = menuPv.config;
+    if (cfg == null || !menuPv.activoHoy) {
+      _showError('Menú del día no configurado para hoy');
+      return;
+    }
+    final productoMenu = catalogo.productoPorId(cabecera.idProducto);
+    if (productoMenu == null) return;
+
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MenuDelDiaDialog(
+          productoMenu: productoMenu,
+          config: cfg,
+          catalogo: catalogo,
+          seleccionInicial: seleccion,
+          modoEdicion: true,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    final mesaPv = context.read<MesaProvider>();
+    if (result == null) return;
+    if (result['eliminar'] == true) {
+      _eliminarGrupoMenu(mesaPv, grupo);
+      return;
+    }
+    _eliminarGrupoMenu(mesaPv, grupo);
+    _addMenuDelDia(productoMenu, cfg, result, menuGrupoLocal: grupo);
+  }
+
+  void _addMenuDelDia(
+    Producto productoMenu,
+    MenuDelDiaConfig cfg,
+    Map<String, dynamic> result, {
+    int? menuGrupoLocal,
+  }) {
+    final catalogo = context.read<CatalogoProvider>();
+    final mesaPv = context.read<MesaProvider>();
+
+    String nombreDe(int id) =>
+        catalogo.productoPorId(id)?.nombreProductoPantalla ?? '#$id';
+
+    final primeros = (result['primeros'] as List).cast<int>();
+    final segundos = (result['segundos'] as List).cast<int>();
+    final bebidaId = result['bebida_id'] as int?;
+    final bebidaDelMenu = result['bebida_del_menu'] == true;
+    final postreId = result['postre_id'] as int?;
+    final comentExtra = (result['comentario'] as String?)?.trim() ?? '';
+    final grupo = menuGrupoLocal ?? _nuevoMenuGrupoLocal();
+    final seleccion = MenuDelDiaSeleccion.fromDialogResult(result);
+
+    final partes = <String>[];
+    if (primeros.isNotEmpty) {
+      partes.add('1º ${primeros.map(nombreDe).join(', ')}');
+    }
+    if (segundos.isNotEmpty) {
+      partes.add('2º ${segundos.map(nombreDe).join(', ')}');
+    }
+    if (bebidaId != null) {
+      partes.add(
+        'Beb: ${nombreDe(bebidaId)}${bebidaDelMenu ? '' : ' (carta)'}',
+      );
+    }
+    if (postreId != null) {
+      partes.add('Postre: ${nombreDe(postreId)}');
+    }
+    var comentarioMenu = partes.join(' · ');
+    if (comentExtra.isNotEmpty) {
+      comentarioMenu =
+          comentarioMenu.isEmpty ? comentExtra : '$comentarioMenu · $comentExtra';
+    }
+
+    mesaPv.agregarLinea(LineaPedido(
+      idProducto: productoMenu.id,
+      cantidad: 1,
+      comentario: comentarioMenu,
+      nombreProducto: productoMenu.nombreProductoPantalla,
+      opcionesElegidas: const {},
+      textoImprimirBarraCocina: productoMenu.textoImprimirBarraCocina,
+      orden: 0,
+      menuGrupoLocal: grupo,
+      menuDelDiaSeleccion: seleccion,
+    ));
+
+    void addComponente(int idProd) {
+      final prod = catalogo.productoPorId(idProd);
+      if (prod == null) return;
+      mesaPv.agregarLinea(LineaPedido(
+        idProducto: idProd,
+        cantidad: 1,
+        comentario: 'Menú del día',
+        nombreProducto: prod.nombreProductoPantalla,
+        opcionesElegidas: const {},
+        textoImprimirBarraCocina: prod.textoImprimirBarraCocina,
+        orden: 0,
+        sinCargo: true,
+        menuGrupoLocal: grupo,
+      ));
+    }
+
+    for (final id in primeros) {
+      addComponente(id);
+    }
+    for (final id in segundos) {
+      addComponente(id);
+    }
+    if (bebidaId != null) {
+      if (bebidaDelMenu) {
+        addComponente(bebidaId);
+      } else {
+        final prod = catalogo.productoPorId(bebidaId);
+        if (prod != null) {
+          final desc = cfg.descuentoBebidaAlternativaPct;
+          mesaPv.agregarLinea(LineaPedido(
+            idProducto: bebidaId,
+            cantidad: 1,
+            comentario: 'Menú del día · bebida carta',
+            nombreProducto: prod.nombreProductoPantalla,
+            opcionesElegidas: const {},
+            textoImprimirBarraCocina: prod.textoImprimirBarraCocina,
+            orden: 0,
+            descuentoMenuBebidaPct: desc > 0 ? desc : 0,
+            menuGrupoLocal: grupo,
+          ));
+        }
+      }
+    }
+    if (postreId != null) {
+      addComponente(postreId);
+    }
   }
 
   // ── Nota / Artículo libre ────────────────────────────────────
@@ -860,6 +1064,24 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final mesaPv = context.read<MesaProvider>();
     if (mesaPv.soloLectura) return;
 
+    if (linea.esDetalleMenuDelDia) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+          'Las líneas del menú se editan desde la cabecera (pulsación larga)',
+        ),
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
+
+    if (linea.esCabeceraMenuDelDia) {
+      final grupo = linea.menuGrupoLocal;
+      if (grupo != null && _grupoMenuSinGuardar(mesaPv, grupo)) {
+        await _editarMenuDelDia(linea);
+      }
+      return;
+    }
+
     // Nota libre: editor especial
     if (linea.esNotaLibre) {
       _editarNotaLibre(linea);
@@ -913,6 +1135,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   void onLineaIncrement(LineaPedido linea) {
     final mesaPv = context.read<MesaProvider>();
     if (!_puedeEditar(mesaPv)) return;
+    if (linea.perteneceMenuDelDia) return;
 
     if (linea.esNuevo) {
       mesaPv.modificarLinea(linea, cantidad: linea.cantidad + 1);
@@ -971,6 +1194,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   void _eliminarLineaPedido(MesaProvider mesaPv, LineaPedido linea) {
+    final grupo = linea.menuGrupoLocal;
+    if (grupo != null && _grupoMenuSinGuardar(mesaPv, grupo)) {
+      _eliminarGrupoMenu(mesaPv, grupo);
+      return;
+    }
     final idx = mesaPv.lineas.indexOf(linea);
     if (idx < 0) return;
     mesaPv.eliminarLinea(linea);
@@ -1041,6 +1269,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final mesaPv = context.read<MesaProvider>();
     if (!_puedeEditar(mesaPv) || !linea.esNuevo) return;
 
+    if (linea.esCabeceraMenuDelDia) {
+      final grupo = linea.menuGrupoLocal;
+      if (grupo != null) _eliminarGrupoMenu(mesaPv, grupo);
+      return;
+    }
+    if (linea.esDetalleMenuDelDia) return;
+
     if (linea.cantidad > 1) {
       mesaPv.modificarLinea(linea, cantidad: linea.cantidad - 1);
     } else {
@@ -1050,7 +1285,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   Future<void> onLineaToggleUrgente(LineaPedido linea) async {
     final mesaPv = context.read<MesaProvider>();
-    if (!_puedeEditar(mesaPv) || linea.esNotaLibre) return;
+    if (!_puedeEditar(mesaPv) || linea.esNotaLibre || linea.esDetalleMenuDelDia) {
+      return;
+    }
 
     final nuevo = !linea.urgente;
     if (linea.esNuevo) {
@@ -1395,41 +1632,26 @@ class _ColumnaCatalogoPedido extends StatefulWidget {
 
 class _ColumnaCatalogoPedidoState extends State<_ColumnaCatalogoPedido> {
   final TextEditingController _buscarCtrl = TextEditingController();
-  Timer? _debounceBuscar;
-  BusquedaCatalogoPedido _busqUi = kBusquedaCatalogoPedidoInactiva;
-  BusquedaCatalogoPedido _busqFiltrado = kBusquedaCatalogoPedidoInactiva;
+  BusquedaCatalogoPedido _busq = kBusquedaCatalogoPedidoInactiva;
 
   @override
   void dispose() {
-    _debounceBuscar?.cancel();
     _buscarCtrl.dispose();
     super.dispose();
   }
 
   void _onBuscarChanged(String raw) {
-    setState(() => _busqUi = interpretarCampoBusquedaCatalogoMm(raw));
-    _debounceBuscar?.cancel();
-    _debounceBuscar = Timer(const Duration(milliseconds: 150), () {
-      if (!mounted) return;
-      setState(() {
-        _busqFiltrado = interpretarCampoBusquedaCatalogoMm(_buscarCtrl.text);
-      });
-    });
+    setState(() => _busq = interpretarCampoBusquedaCatalogoMm(raw));
   }
 
   void _limpiarBusqueda() {
-    _debounceBuscar?.cancel();
     _buscarCtrl.clear();
-    setState(() {
-      _busqUi = kBusquedaCatalogoPedidoInactiva;
-      _busqFiltrado = kBusquedaCatalogoPedidoInactiva;
-    });
+    setState(() => _busq = kBusquedaCatalogoPedidoInactiva);
   }
 
   @override
   Widget build(BuildContext context) {
-    final busq = _busqUi;
-    final busqLista = _busqFiltrado;
+    final busq = _busq;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1500,10 +1722,10 @@ class _ColumnaCatalogoPedidoState extends State<_ColumnaCatalogoPedido> {
         Expanded(
           child: CatalogoPanel(
             key: widget.catalogoKey,
-            onTap: (p) => widget.onProductoTap(p, busqLista),
+            onTap: (p) => widget.onProductoTap(p, busq),
             onLongPress: widget.onProductoLongPress,
-            busquedaActiva: busqLista.activa,
-            busqueda: busqLista,
+            busquedaActiva: busq.activa,
+            busqueda: busq,
             onManual: widget.onManual,
           ),
         ),

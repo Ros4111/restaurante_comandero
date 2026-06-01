@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/catalogo_provider.dart';
+import '../services/menu_dia_provider.dart';
 import '../utils/theme.dart';
+import '../widgets/tecla_numerica_button.dart';
 import 'mesas_screen.dart';
 import 'pendientes_servir_screen.dart';
 import 'config_screen.dart';
@@ -94,6 +96,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final catalogo = await api.getCatalogo();
       if (mounted) context.read<CatalogoProvider>().cargar(catalogo);
+
+      try {
+        final menuDia = await api.getMenuDia();
+        if (mounted) context.read<MenuDelDiaProvider>().cargar(menuDia);
+      } catch (_) {}
 
       if (!mounted) return;
       context.read<SesionProvider>().login(Usuario(
@@ -463,18 +470,15 @@ class _BotonNum extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return TeclaNumericaButton(
       color: const Color(0xFF2A2A2A),
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Center(
-          child: Text(label,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold)),
+      onTap: onTap,
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 26,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -489,14 +493,10 @@ class _BotonAccion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return TeclaNumericaButton(
       color: color,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Center(child: child),
-      ),
+      onTap: onTap,
+      child: child,
     );
   }
 }

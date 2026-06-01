@@ -180,6 +180,143 @@ class Impresora {
       );
 }
 
+/// Producto disponible en un grupo del menú del día (respuesta API).
+class MenuDelDiaProductoItem {
+  final int id;
+  final String nombre;
+  final bool agotado;
+
+  MenuDelDiaProductoItem({
+    required this.id,
+    required this.nombre,
+    this.agotado = false,
+  });
+
+  factory MenuDelDiaProductoItem.fromJson(Map<String, dynamic> j) =>
+      MenuDelDiaProductoItem(
+        id: int.parse(j['id_producto'].toString()),
+        nombre: j['nombre_producto_pantalla']?.toString() ?? '',
+        agotado: j['agotado'] == true || j['agotado']?.toString() == '1',
+      );
+}
+
+/// Configuración del menú del día para una fecha.
+class MenuDelDiaConfig {
+  static const filtroProductoMenu = 'menu_dia';
+  static const nombresGrupos = ['primero', 'segundo', 'bebida', 'postre'];
+
+  final String fecha;
+  final int? idProductoMenu;
+  final bool activo;
+  /// Descuento % sobre el PVP de carta si el cliente elige bebida fuera del menú.
+  final double descuentoBebidaAlternativaPct;
+  final String notas;
+  final Map<String, List<MenuDelDiaProductoItem>> grupos;
+
+  MenuDelDiaConfig({
+    required this.fecha,
+    required this.idProductoMenu,
+    required this.activo,
+    this.descuentoBebidaAlternativaPct = 0,
+    this.notas = '',
+    required this.grupos,
+  });
+
+  factory MenuDelDiaConfig.fromJson(Map<String, dynamic> j) {
+    final rawGrupos = j['grupos'];
+    final map = <String, List<MenuDelDiaProductoItem>>{};
+    for (final g in nombresGrupos) {
+      map[g] = [];
+    }
+    if (rawGrupos is Map) {
+      rawGrupos.forEach((k, v) {
+        final key = k.toString();
+        if (!map.containsKey(key)) return;
+        if (v is List) {
+          map[key] = v
+              .map((e) => MenuDelDiaProductoItem.fromJson(
+                  Map<String, dynamic>.from(e as Map)))
+              .toList();
+        }
+      });
+    }
+    final idRaw = j['id_producto_menu'];
+    return MenuDelDiaConfig(
+      fecha: j['fecha']?.toString() ?? '',
+      idProductoMenu:
+          idRaw == null ? null : int.tryParse(idRaw.toString()),
+      activo: j['activo'] == true || j['activo']?.toString() == '1',
+      descuentoBebidaAlternativaPct: double.tryParse(
+              (j['descuento_bebida_alternativa_pct'] ?? 0).toString()) ??
+          0,
+      notas: j['notas']?.toString() ?? '',
+      grupos: map,
+    );
+  }
+
+  List<MenuDelDiaProductoItem> productosGrupo(String grupo) =>
+      grupos[grupo] ?? const [];
+
+  List<MenuDelDiaProductoItem> productosPediblesGrupo(String grupo) =>
+      productosGrupo(grupo).where((p) => !p.agotado).toList();
+
+  bool esProductoMenu(int idProducto) =>
+      idProductoMenu != null && idProducto == idProductoMenu;
+
+  bool esProductoMenuPorFiltro(String filtro) => filtro == filtroProductoMenu;
+}
+
+/// Selección del menú del día (solo en memoria, línea cabecera antes de guardar).
+class MenuDelDiaSeleccion {
+  final List<int> primeros;
+  final List<int> segundos;
+  final int? bebidaId;
+  final bool bebidaDelMenu;
+  final int? postreId;
+  final String comentarioExtra;
+  final bool dosPrimeros;
+  final bool dosSegundos;
+
+  const MenuDelDiaSeleccion({
+    required this.primeros,
+    required this.segundos,
+    this.bebidaId,
+    this.bebidaDelMenu = true,
+    this.postreId,
+    this.comentarioExtra = '',
+    this.dosPrimeros = false,
+    this.dosSegundos = false,
+  });
+
+  factory MenuDelDiaSeleccion.fromDialogResult(Map<String, dynamic> r) {
+    final primeros = (r['primeros'] as List).cast<int>();
+    final segundos = (r['segundos'] as List).cast<int>();
+    return MenuDelDiaSeleccion(
+      primeros: primeros,
+      segundos: segundos,
+      bebidaId: r['bebida_id'] as int?,
+      bebidaDelMenu: r['bebida_del_menu'] == true,
+      postreId: r['postre_id'] as int?,
+      comentarioExtra: (r['comentario'] as String?)?.trim() ?? '',
+      dosPrimeros: r['dos_primeros'] == true ||
+          (primeros.length >= 2 && segundos.isEmpty),
+      dosSegundos: r['dos_segundos'] == true ||
+          (segundos.length >= 2 && primeros.isEmpty),
+    );
+  }
+
+  Map<String, dynamic> toDialogResult() => {
+        'primeros': primeros,
+        'segundos': segundos,
+        'bebida_id': bebidaId,
+        'bebida_del_menu': bebidaDelMenu,
+        'postre_id': postreId,
+        'comentario': comentarioExtra,
+        'dos_primeros': dosPrimeros,
+        'dos_segundos': dosSegundos,
+      };
+}
+
 class LineaPedido {
   int? idLinea; // null = nueva línea (no guardada aún)
   final int idProducto;
@@ -193,9 +330,19 @@ class LineaPedido {
   int? moverAMesa; // si != null, mover esta línea a otra mesa
   bool editada;
   bool urgente;
+  /// Línea incluida en menú del día (precio 0 en ticket; cocina sí imprime).
+  bool sinCargo;
+  /// Suplemento sin IVA añadido al precio base del producto.
+  double suplementoSinIva;
+  /// Descuento % sobre PVP de carta (bebida alternativa en menú del día).
+  double descuentoMenuBebidaPct;
   /// PVP unitario (IVA incluido) almacenado en BD. Solo fiable para notas libres;
   /// para productos regulares se recalcula desde el catálogo.
   final double pvpAlmacenado;
+  /// Agrupa cabecera y detalle de un menú del día (solo sesión local).
+  final int? menuGrupoLocal;
+  /// Solo en la línea cabecera del menú (producto menú del día).
+  final MenuDelDiaSeleccion? menuDelDiaSeleccion;
 
   LineaPedido({
     this.idLinea,
@@ -210,11 +357,21 @@ class LineaPedido {
     this.moverAMesa,
     this.editada = false,
     this.urgente = false,
+    this.sinCargo = false,
+    this.suplementoSinIva = 0,
+    this.descuentoMenuBebidaPct = 0,
     this.pvpAlmacenado = 0.0,
+    this.menuGrupoLocal,
+    this.menuDelDiaSeleccion,
   });
 
+  bool get esComponenteMenu => sinCargo;
+  bool get perteneceMenuDelDia => menuGrupoLocal != null;
+  bool get esCabeceraMenuDelDia =>
+      menuGrupoLocal != null && menuDelDiaSeleccion != null;
+  bool get esDetalleMenuDelDia =>
+      menuGrupoLocal != null && menuDelDiaSeleccion == null;
   bool get esNuevo => idLinea == null;
-  /// Línea de texto libre añadida sin producto del catálogo.
   bool get esNotaLibre => idProducto == 0;
   List<String> get opcionesNoPredeterminadas => opcionesElegidas.values
       .where((o) => !o.predeterminado)
@@ -294,6 +451,11 @@ class LineaPedido {
     };
     if (idLinea != null) m['id_linea'] = idLinea;
     if (moverAMesa != null) m['mover_a_mesa'] = moverAMesa;
+    if (sinCargo) m['sin_cargo'] = true;
+    if (suplementoSinIva > 0) m['suplemento_sin_iva'] = suplementoSinIva;
+    if (descuentoMenuBebidaPct > 0) {
+      m['descuento_menu_bebida_pct'] = descuentoMenuBebidaPct;
+    }
     return m;
   }
 
@@ -304,6 +466,11 @@ class LineaPedido {
     Map<int, OpcionElegida>? opcionesElegidas,
     bool? editada,
     bool? urgente,
+    bool? sinCargo,
+    double? suplementoSinIva,
+    double? descuentoMenuBebidaPct,
+    int? menuGrupoLocal,
+    MenuDelDiaSeleccion? menuDelDiaSeleccion,
   }) =>
       LineaPedido(
         idLinea: idLinea,
@@ -319,7 +486,13 @@ class LineaPedido {
         moverAMesa: moverAMesa ?? this.moverAMesa,
         editada: editada ?? this.editada,
         urgente: urgente ?? this.urgente,
+        sinCargo: sinCargo ?? this.sinCargo,
+        suplementoSinIva: suplementoSinIva ?? this.suplementoSinIva,
+        descuentoMenuBebidaPct:
+            descuentoMenuBebidaPct ?? this.descuentoMenuBebidaPct,
         pvpAlmacenado: pvpAlmacenado,
+        menuGrupoLocal: menuGrupoLocal ?? this.menuGrupoLocal,
+        menuDelDiaSeleccion: menuDelDiaSeleccion ?? this.menuDelDiaSeleccion,
       );
 }
 

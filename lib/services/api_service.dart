@@ -583,6 +583,15 @@ class ApiService extends ChangeNotifier {
     return await _request('GET', '/catalogo');
   }
 
+  Future<Map<String, dynamic>> getMenuDia({String? fecha}) async {
+    final q = (fecha != null && fecha.isNotEmpty) ? '?fecha=$fecha' : '';
+    return await _request('GET', '/menu-dia$q');
+  }
+
+  Future<Map<String, dynamic>> guardarMenuDia(Map<String, dynamic> body) async {
+    return await _request('POST', '/menu-dia', body: body);
+  }
+
   // ── Productos (admin / supervisor) ─────────────────────────
   Future<List<Map<String, dynamic>>> getProductosLista({String? q}) async {
     final path = (q == null || q.trim().isEmpty)
@@ -686,7 +695,7 @@ class ApiService extends ChangeNotifier {
     return await _request('GET', '/pedidos/$idPedido?terminal_serie=$terminal');
   }
 
-  Future<void> guardarPedido(
+  Future<Map<String, dynamic>> guardarPedido(
     int idPedido,
     List<LineaPedido> lineas, {
     required String nombreCliente,
@@ -701,7 +710,7 @@ class ApiService extends ChangeNotifier {
     if (ref != null && ref.isNotEmpty) {
       body['hora_ultima_accion_ref'] = ref;
     }
-    await _request('POST', '/pedidos/$idPedido/guardar', body: body);
+    return await _request('POST', '/pedidos/$idPedido/guardar', body: body);
   }
 
   Future<int> crearNotaLibre({
