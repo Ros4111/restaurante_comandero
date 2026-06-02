@@ -315,6 +315,39 @@ class MenuDelDiaSeleccion {
         'dos_primeros': dosPrimeros,
         'dos_segundos': dosSegundos,
       };
+
+  /// Resumen de cabecera: solo 1º / 2º (+ comentario libre opcional).
+  static String comentarioCabecera({
+    required List<int> primeros,
+    required List<int> segundos,
+    required String Function(int id) nombreDe,
+    String comentarioExtra = '',
+  }) {
+    final partes = <String>[];
+    if (primeros.isNotEmpty) {
+      partes.add('1º ${primeros.map(nombreDe).join(', ')}');
+    }
+    if (segundos.isNotEmpty) {
+      partes.add('2º ${segundos.map(nombreDe).join(', ')}');
+    }
+    var c = partes.join(' · ');
+    final extra = comentarioExtra.trim();
+    if (extra.isNotEmpty) {
+      c = c.isEmpty ? extra : '$c · $extra';
+    }
+    return c;
+  }
+
+  /// Texto visible en la línea del pedido (solo platos del menú).
+  static String comentarioPlatosEnLinea(String comentario) {
+    return comentario
+        .split(' · ')
+        .where((p) {
+          final t = p.trim();
+          return t.startsWith('1º') || t.startsWith('2º');
+        })
+        .join(' · ');
+  }
 }
 
 class LineaPedido {
@@ -370,7 +403,11 @@ class LineaPedido {
   bool get esCabeceraMenuDelDia =>
       menuGrupoLocal != null && menuDelDiaSeleccion != null;
   bool get esDetalleMenuDelDia =>
-      menuGrupoLocal != null && menuDelDiaSeleccion == null;
+      (menuGrupoLocal != null && menuDelDiaSeleccion == null) ||
+      comentarioEsDetalleMenuDelDia(comentario);
+
+  static bool comentarioEsDetalleMenuDelDia(String comentario) =>
+      comentario.startsWith('Menú del día');
   bool get esNuevo => idLinea == null;
   bool get esNotaLibre => idProducto == 0;
   List<String> get opcionesNoPredeterminadas => opcionesElegidas.values

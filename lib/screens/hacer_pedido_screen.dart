@@ -64,6 +64,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   int _nextMenuGrupoLocal = 1;
 
+  /// QR cliente impreso una sola vez por sesión en mesa (primer guardado OK).
+  bool _qrClienteImpresoEnSesion = false;
+
   StreamSubscription<void>? _catalogoStreamSub;
   Timer? _catalogoFallbackTimer;
   Set<int> _agotadosConocidos = {};
@@ -424,6 +427,47 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
   }
 
+  /// QR cliente (Sunmi): solo la primera vez que se guarda en esta sesión de mesa.
+  Future<void> _imprimirQrClienteTrasGuardar(
+    Map<String, dynamic> respGuardar, {
+    required List<LineaPedido> lineasNuevas,
+  }) async {
+    final mesaPv = context.read<MesaProvider>();
+    final api = context.read<ApiService>();
+    if (_qrClienteImpresoEnSesion) return;
+    if (!await SunmiService.dispositivoEsMarcaSunmi()) return;
+
+    if (mesaPv.lineas.isEmpty && lineasNuevas.isEmpty) return;
+
+    var url = SunmiService.urlPublicaDesdeMap(respGuardar);
+    if (url == null) {
+      try {
+        final data = await api.getPedido(widget.idPedido);
+        url = SunmiService.urlPublicaDesdeMap(data);
+      } catch (e) {
+        debugPrint('QR pedido: fallo al obtener token: $e');
+      }
+    }
+    if (url == null) {
+      if (mounted) {
+        _showError(
+          'No se pudo generar el enlace del QR. Comprueba que el servidor esté actualizado.',
+        );
+      }
+      return;
+    }
+
+    final err = await SunmiService.imprimirTicketQrPedidoCliente(
+      idMesa: widget.idMesa,
+      urlPublica: url,
+    );
+    if (err.isEmpty) {
+      _qrClienteImpresoEnSesion = true;
+    } else if (mounted) {
+      _showError(err);
+    }
+  }
+
   Future<bool> _guardar({bool imprimir = true}) async {
     if (_guardando) return false;
     _syncNombreCliente();
@@ -483,6 +527,11 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
       final pedidoBorrado = resp['pedido_eliminado'] == true ||
           resp['pedido_eliminado']?.toString() == '1';
+
+      if (!_qrClienteImpresoEnSesion && !pedidoBorrado) {
+        await _imprimirQrClienteTrasGuardar(resp, lineasNuevas: lineasNuevas);
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
@@ -837,19 +886,87 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   int _nuevoMenuGrupoLocal() => _nextMenuGrupoLocal++;
 
-  List<LineaPedido> _lineasGrupoMenu(MesaProvider mesaPv, int grupo) =>
-      mesaPv.lineas.where((l) => l.menuGrupoLocal == grupo).toList();
-
   bool _grupoMenuSinGuardar(MesaProvider mesaPv, int grupo) {
-    final ls = _lineasGrupoMenu(mesaPv, grupo);
+    final ls =
+        mesaPv.lineas.where((l) => l.menuGrupoLocal == grupo).toList();
     return ls.isNotEmpty && ls.every((l) => l.esNuevo);
   }
 
-  void _eliminarGrupoMenu(MesaProvider mesaPv, int grupo) {
-    for (final l in _lineasGrupoMenu(mesaPv, grupo).toList()) {
-      final idx = mesaPv.lineas.indexOf(l);
-      mesaPv.eliminarLinea(l);
-      if (idx >= 0) _ajustarIndicesDuplicadaTrasEliminar(idx);
+  bool _esCabeceraMenuProducto(
+    LineaPedido linea,
+    MenuDelDiaProvider menuPv,
+    CatalogoProvider catalogo,
+  ) {
+    if (linea.esCabeceraMenuDelDia) return true;
+    if (linea.esDetalleMenuDelDia) return false;
+    final p = catalogo.productoPorId(linea.idProducto);
+    return p != null && menuPv.esProductoMenu(p);
+  }
+
+  /// Cabecera + detalle(s) del mismo menú del día.
+  List<LineaPedido> _lineasMenuAsociadas(
+    MesaProvider mesaPv,
+    LineaPedido linea,
+  ) {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+
+    if (linea.menuGrupoLocal != null) {
+      return mesaPv.lineas
+          .where((l) => l.menuGrupoLocal == linea.menuGrupoLocal)
+          .toList();
+    }
+
+    final idx = mesaPv.lineas.indexOf(linea);
+    if (idx < 0) return [linea];
+
+    var cabeceraIdx = idx;
+    if (!_esCabeceraMenuProducto(linea, menuPv, catalogo)) {
+      cabeceraIdx = -1;
+      for (var i = idx - 1; i >= 0; i--) {
+        final l = mesaPv.lineas[i];
+        if (_esCabeceraMenuProducto(l, menuPv, catalogo)) {
+          cabeceraIdx = i;
+          break;
+        }
+        if (!l.esDetalleMenuDelDia) break;
+      }
+      if (cabeceraIdx < 0) return [linea];
+    }
+
+    final out = <LineaPedido>[];
+    for (var i = cabeceraIdx; i < mesaPv.lineas.length; i++) {
+      final l = mesaPv.lineas[i];
+      if (i > cabeceraIdx &&
+          _esCabeceraMenuProducto(l, menuPv, catalogo)) {
+        break;
+      }
+      if (i == cabeceraIdx) {
+        out.add(l);
+      } else if (l.esDetalleMenuDelDia) {
+        out.add(l);
+      } else {
+        break;
+      }
+    }
+    return out;
+  }
+
+  void _eliminarMenuCompleto(MesaProvider mesaPv, LineaPedido linea) {
+    final aEliminar = _lineasMenuAsociadas(mesaPv, linea);
+    if (aEliminar.isEmpty) return;
+
+    final indices = aEliminar
+        .map((l) => mesaPv.lineas.indexOf(l))
+        .where((i) => i >= 0)
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    for (final idx in indices) {
+      if (idx >= mesaPv.lineas.length) continue;
+      mesaPv.eliminarLinea(mesaPv.lineas[idx]);
+      _ajustarIndicesDuplicadaTrasEliminar(idx);
     }
   }
 
@@ -884,11 +1001,86 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final mesaPv = context.read<MesaProvider>();
     if (result == null) return;
     if (result['eliminar'] == true) {
-      _eliminarGrupoMenu(mesaPv, grupo);
+      _eliminarMenuCompleto(mesaPv, cabecera);
       return;
     }
-    _eliminarGrupoMenu(mesaPv, grupo);
+    _eliminarMenuCompleto(mesaPv, cabecera);
     _addMenuDelDia(productoMenu, cfg, result, menuGrupoLocal: grupo);
+  }
+
+  bool _menuYaTienePostre(
+    MesaProvider mesaPv,
+    LineaPedido cabecera,
+    MenuDelDiaConfig cfg,
+  ) {
+    if (cabecera.comentario.split(' · ').any((p) => p.trim().startsWith('Postre:'))) {
+      return true;
+    }
+    final idsPostre =
+        cfg.productosGrupo('postre').map((p) => p.id).toSet();
+    return _lineasMenuAsociadas(mesaPv, cabecera)
+        .any((l) => l != cabecera && idsPostre.contains(l.idProducto));
+  }
+
+  bool _puedeElegirPostreMenuGuardado(
+    MesaProvider mesaPv,
+    LineaPedido cabecera,
+    MenuDelDiaConfig? cfg,
+  ) {
+    if (cfg == null || cabecera.esNuevo) return false;
+    return !_menuYaTienePostre(mesaPv, cabecera, cfg);
+  }
+
+  Future<void> _editarPostreMenuGuardado(LineaPedido cabecera) async {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    final cfg = menuPv.config;
+    if (cfg == null || !menuPv.activoHoy) {
+      _showError('Menú del día no configurado para hoy');
+      return;
+    }
+    if (_menuYaTienePostre(context.read<MesaProvider>(), cabecera, cfg)) {
+      return;
+    }
+    final productoMenu = catalogo.productoPorId(cabecera.idProducto);
+    if (productoMenu == null) return;
+
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MenuDelDiaDialog(
+          productoMenu: productoMenu,
+          config: cfg,
+          catalogo: catalogo,
+          soloPostre: true,
+          comentarioCabecera: cabecera.comentario,
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    final postreId = result['postre_id'] as int?;
+    if (postreId == null) return;
+
+    final mesaPv = context.read<MesaProvider>();
+    final prod = catalogo.productoPorId(postreId);
+    if (prod == null) return;
+
+    final asociadas = _lineasMenuAsociadas(mesaPv, cabecera);
+    final ultima = asociadas.isNotEmpty ? asociadas.last : cabecera;
+
+    mesaPv.insertarLineaDespues(
+      ultima,
+      LineaPedido(
+        idProducto: postreId,
+        cantidad: 1,
+        comentario: 'Menú del día',
+        nombreProducto: prod.nombreProductoPantalla,
+        opcionesElegidas: const {},
+        textoImprimirBarraCocina: prod.textoImprimirBarraCocina,
+        orden: 0,
+        sinCargo: true,
+      ),
+    );
   }
 
   void _addMenuDelDia(
@@ -912,26 +1104,12 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final grupo = menuGrupoLocal ?? _nuevoMenuGrupoLocal();
     final seleccion = MenuDelDiaSeleccion.fromDialogResult(result);
 
-    final partes = <String>[];
-    if (primeros.isNotEmpty) {
-      partes.add('1º ${primeros.map(nombreDe).join(', ')}');
-    }
-    if (segundos.isNotEmpty) {
-      partes.add('2º ${segundos.map(nombreDe).join(', ')}');
-    }
-    if (bebidaId != null) {
-      partes.add(
-        'Beb: ${nombreDe(bebidaId)}${bebidaDelMenu ? '' : ' (carta)'}',
-      );
-    }
-    if (postreId != null) {
-      partes.add('Postre: ${nombreDe(postreId)}');
-    }
-    var comentarioMenu = partes.join(' · ');
-    if (comentExtra.isNotEmpty) {
-      comentarioMenu =
-          comentarioMenu.isEmpty ? comentExtra : '$comentarioMenu · $comentExtra';
-    }
+    final comentarioMenu = MenuDelDiaSeleccion.comentarioCabecera(
+      primeros: primeros,
+      segundos: segundos,
+      nombreDe: nombreDe,
+      comentarioExtra: comentExtra,
+    );
 
     mesaPv.agregarLinea(LineaPedido(
       idProducto: productoMenu.id,
@@ -1074,14 +1252,6 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       return;
     }
 
-    if (linea.esCabeceraMenuDelDia) {
-      final grupo = linea.menuGrupoLocal;
-      if (grupo != null && _grupoMenuSinGuardar(mesaPv, grupo)) {
-        await _editarMenuDelDia(linea);
-      }
-      return;
-    }
-
     // Nota libre: editor especial
     if (linea.esNotaLibre) {
       _editarNotaLibre(linea);
@@ -1089,12 +1259,59 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
 
     final catalogo = context.read<CatalogoProvider>();
+    final menuPv = context.read<MenuDelDiaProvider>();
     final producto =
         catalogo.productos.where((p) => p.id == linea.idProducto).firstOrNull;
     if (producto == null) {
       _showError('No se pudo abrir el editor del producto');
       return;
     }
+
+    if (_esCabeceraMenuProducto(linea, menuPv, catalogo)) {
+      final cfg = menuPv.config;
+      final grupo = linea.menuGrupoLocal;
+      if (grupo != null &&
+          linea.menuDelDiaSeleccion != null &&
+          _grupoMenuSinGuardar(mesaPv, grupo)) {
+        await _editarMenuDelDia(linea);
+        return;
+      }
+      if (_puedeElegirPostreMenuGuardado(mesaPv, linea, cfg)) {
+        await _editarPostreMenuGuardado(linea);
+        return;
+      }
+      if (!linea.esNuevo &&
+          cfg != null &&
+          _menuYaTienePostre(mesaPv, linea, cfg)) {
+        return;
+      }
+      if (!linea.esNuevo) return;
+      final eliminar = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Eliminar menú del día'),
+          content: const Text(
+            'Se quitarán la línea del menú y todos sus platos y bebida asociados.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'Eliminar',
+                style: TextStyle(color: AppTheme.colorAgotado),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (eliminar == true) _eliminarMenuCompleto(mesaPv, linea);
+      return;
+    }
+
     final grupos = catalogo.gruposDeProducto(producto.id);
 
     final result = await showDialog<Map<String, dynamic>>(
@@ -1194,9 +1411,12 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   void _eliminarLineaPedido(MesaProvider mesaPv, LineaPedido linea) {
-    final grupo = linea.menuGrupoLocal;
-    if (grupo != null && _grupoMenuSinGuardar(mesaPv, grupo)) {
-      _eliminarGrupoMenu(mesaPv, grupo);
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    if (linea.esDetalleMenuDelDia ||
+        linea.menuGrupoLocal != null ||
+        _esCabeceraMenuProducto(linea, menuPv, catalogo)) {
+      _eliminarMenuCompleto(mesaPv, linea);
       return;
     }
     final idx = mesaPv.lineas.indexOf(linea);
@@ -1270,8 +1490,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     if (!_puedeEditar(mesaPv) || !linea.esNuevo) return;
 
     if (linea.esCabeceraMenuDelDia) {
-      final grupo = linea.menuGrupoLocal;
-      if (grupo != null) _eliminarGrupoMenu(mesaPv, grupo);
+      _eliminarMenuCompleto(mesaPv, linea);
       return;
     }
     if (linea.esDetalleMenuDelDia) return;

@@ -95,7 +95,6 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
   // ── acciones ───────────────────────────────────────────────
 
   void _onReorder(int oldIndex, int newIndex) {
-    if (newIndex > oldIndex) newIndex--;
     setState(() {
       final item = _items.removeAt(oldIndex);
       _items.insert(newIndex, item);
@@ -284,7 +283,7 @@ class _ReordenarProductosScreenState extends State<ReordenarProductosScreen> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     itemCount: _items.length,
-                    onReorder: _onReorder,
+                    onReorderItem: _onReorder,
                     proxyDecorator: (child, index, animation) =>
                         _ProxyItem(child: child),
                     itemBuilder: (context, index) {

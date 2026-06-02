@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pedido — Guardamar</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --border: #2d3a4d;
+      --add: #81c784;
+      --del: #e57373;
+      --mod: #ffb74d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding: 16px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0 0 4px; font-size: 1.35rem; font-weight: 700; }
+    header .meta { color: var(--muted); font-size: 0.9rem; }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .linea {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .linea:last-child { border-bottom: none; }
+    .linea-nombre { font-weight: 600; font-size: 1.05rem; }
+    .linea-detalle { color: var(--muted); font-size: 0.88rem; margin-top: 4px; }
+    .urgente { color: #ff8a80; font-weight: 600; font-size: 0.8rem; }
+    .cambio {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.92rem;
+    }
+    .cambio:last-child { border-bottom: none; }
+    .cambio-hora { color: var(--muted); font-size: 0.8rem; }
+    .cambio-texto { margin-top: 2px; }
+    .tipo-añadir .cambio-texto { color: var(--add); }
+    .tipo-borrar .cambio-texto { color: var(--del); }
+    .tipo-modificar .cambio-texto { color: var(--mod); }
+    #estado {
+      text-align: center;
+      padding: 48px 16px;
+      color: var(--muted);
+    }
+    #error { color: var(--del); text-align: center; padding: 24px; }
+    footer {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div id="estado">Cargando pedido…</div>
+  <div id="contenido" hidden>
+    <header>
+      <h1 id="titulo-mesa">Mesa</h1>
+      <p class="meta" id="meta-horas"></p>
+    </header>
+    <section class="card">
+      <h2>Artículos</h2>
+      <div id="lineas"></div>
+    </section>
+    <section class="card" id="seccion-cambios" hidden>
+      <h2>Modificaciones</h2>
+      <div id="cambios"></div>
+    </section>
+    <footer>www.guardamar.es</footer>
+  </div>
+  <div id="error" hidden></div>
+
+  <script>
+    const API_URL = 'api.php';
+
+    function tokenDesdeUrl() {
+      const parts = window.location.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        if (/^[a-f0-9]{32}$/i.test(p)) return p.toLowerCase();
+      }
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get('t') || '';
+      return /^[a-f0-9]{32}$/i.test(t) ? t.toLowerCase() : null;
+    }
+
+    function fmtHora(iso) {
+      if (!iso) return '';
+      const d = new Date(iso.replace(' ', 'T'));
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString('es-ES', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    function claseCambio(tipo) {
+      if (tipo === 'añadir' || tipo === 'nota_libre') return 'tipo-añadir';
+      if (tipo === 'borrar') return 'tipo-borrar';
+      return 'tipo-modificar';
+    }
+
+    async function cargar() {
+      const token = tokenDesdeUrl();
+      const estado = document.getElementById('estado');
+      const error = document.getElementById('error');
+      const contenido = document.getElementById('contenido');
+
+      if (!token) {
+        estado.hidden = true;
+        error.hidden = false;
+        error.textContent = 'Enlace no válido.';
+        return;
+      }
+
+      try {
+        const res = await fetch(API_URL + '?token=' + encodeURIComponent(token));
+        const json = await res.json();
+        if (!json.ok) {
+          throw new Error(json.error || 'No se pudo cargar el pedido');
+        }
+        const d = json.data;
+        estado.hidden = true;
+        contenido.hidden = false;
+
+        document.getElementById('titulo-mesa').textContent = 'Mesa ' + d.mesa;
+        const horas = [];
+        if (d.hora_creacion) horas.push('Pedido: ' + fmtHora(d.hora_creacion));
+        if (d.hora_ultima_accion) horas.push('Última actualización: ' + fmtHora(d.hora_ultima_accion));
+        if (d.cerrado && d.hora_cierre) horas.push('Cerrado: ' + fmtHora(d.hora_cierre));
+        document.getElementById('meta-horas').textContent = horas.join(' · ');
+
+        const lineasEl = document.getElementById('lineas');
+        lineasEl.innerHTML = '';
+        if (!d.lineas || d.lineas.length === 0) {
+          lineasEl.innerHTML = '<p class="linea-detalle">Sin artículos en el pedido.</p>';
+        } else {
+          for (const l of d.lineas) {
+            const div = document.createElement('div');
+            div.className = 'linea';
+            const qty = l.cantidad > 1 ? l.cantidad + '× ' : '';
+            let html = '<div class="linea-nombre">' + qty + escapeHtml(l.nombre) + '</div>';
+            if (l.urgente) html += '<div class="urgente">URGENTE</div>';
+            if (l.opciones && l.opciones.length) {
+              html += '<div class="linea-detalle">' + escapeHtml(l.opciones.join(', ')) + '</div>';
+            }
+            if (l.comentario) {
+              html += '<div class="linea-detalle">Nota: ' + escapeHtml(l.comentario) + '</div>';
+            }
+            if (l.hora) {
+              html += '<div class="linea-detalle">' + fmtHora(l.hora) + '</div>';
+            }
+            div.innerHTML = html;
+            lineasEl.appendChild(div);
+          }
+        }
+
+        const mods = d.modificaciones || [];
+        if (mods.length > 0) {
+          document.getElementById('seccion-cambios').hidden = false;
+          const cambiosEl = document.getElementById('cambios');
+          cambiosEl.innerHTML = '';
+          for (const c of mods) {
+            const div = document.createElement('div');
+            div.className = 'cambio ' + claseCambio(c.tipo);
+            div.innerHTML =
+              '<div class="cambio-hora">' + fmtHora(c.hora) + '</div>' +
+              '<div class="cambio-texto">' + escapeHtml(c.texto) + '</div>';
+            cambiosEl.appendChild(div);
+          }
+        }
+      } catch (e) {
+        estado.hidden = true;
+        error.hidden = false;
+        error.textContent = e.message || 'Error al cargar.';
+      }
+    }
+
+    function escapeHtml(s) {
+      const el = document.createElement('span');
+      el.textContent = s;
+      return el.innerHTML;
+    }
+
+    cargar();
+  </script>
+</body>
+</html>

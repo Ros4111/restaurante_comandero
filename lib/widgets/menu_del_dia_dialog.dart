@@ -13,6 +13,9 @@ class MenuDelDiaDialog extends StatefulWidget {
   final CatalogoProvider catalogo;
   final MenuDelDiaSeleccion? seleccionInicial;
   final bool modoEdicion;
+  /// Tras guardar el pedido: solo elegir postre (una vez).
+  final bool soloPostre;
+  final String? comentarioCabecera;
 
   const MenuDelDiaDialog({
     super.key,
@@ -21,6 +24,8 @@ class MenuDelDiaDialog extends StatefulWidget {
     required this.catalogo,
     this.seleccionInicial,
     this.modoEdicion = false,
+    this.soloPostre = false,
+    this.comentarioCabecera,
   });
 
   @override
@@ -44,7 +49,10 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
   void initState() {
     super.initState();
     final ini = widget.seleccionInicial;
-    if (ini == null) return;
+    if (ini == null) {
+      if (widget.soloPostre) _sinPostre = false;
+      return;
+    }
     _dosPrimeros = ini.dosPrimeros;
     _dosSegundos = ini.dosSegundos;
     _primeros.addAll(ini.primeros);
@@ -106,12 +114,16 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
     return claves.any((k) => n.contains(k));
   }
 
+  bool get _buscandoBebidaCatalogo => _busqBebida.trim().isNotEmpty;
+
+  static const _alturaFilaBebidaBusqueda = 48.0;
+
   List<Producto> get _bebidasCatalogo {
     final q = _busqBebida.trim().toLowerCase();
+    if (q.isEmpty) return const [];
     final out = widget.catalogo.productos.where((p) {
       if (!p.disponible) return false;
       if (!_esBebidaCatalogo(p)) return false;
-      if (q.isEmpty) return true;
       return p.nombreProductoPantalla.toLowerCase().contains(q) ||
           p.filtro.toLowerCase().contains(q);
     }).toList();
@@ -212,6 +224,10 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
   }
 
   String? _validar() {
+    if (widget.soloPostre) {
+      if (_postreId == null) return 'Elige un postre';
+      return null;
+    }
     if (_dosPrimeros) {
       if (_primeros.length != 2) return 'Elige 2 primeros platos';
     } else if (_dosSegundos) {
@@ -238,6 +254,10 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       return;
     }
     final bebidaId = _bebidaMenuId ?? _bebidaAlternativaId;
+    if (widget.soloPostre) {
+      Navigator.pop(context, {'postre_id': _postreId});
+      return;
+    }
     Navigator.pop(context, {
       'primeros': _primeros.toList(),
       'segundos': _segundos.toList(),
@@ -304,23 +324,23 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       title: Text(
         item.nombre,
         style: TextStyle(
+          fontSize: 16,
           color: item.agotado ? AppTheme.colorTextoGris : AppTheme.colorTexto,
           decoration: item.agotado ? TextDecoration.lineThrough : null,
         ),
       ),
       subtitle: item.agotado
           ? const Text('AGOTADO', style: TextStyle(color: AppTheme.colorAgotado))
-          : const Text('Incluida en el menú'),
+          : null,
       onTap: item.agotado ? null : () => _seleccionarBebidaMenu(item.id),
     );
   }
 
   Widget _opcionBebidaCatalogo(Producto p) {
     final sel = _bebidaAlternativaId == p.id;
-    final pvp = _pvpBebidaAlternativa(p);
-    final desc = widget.config.descuentoBebidaAlternativaPct;
     return ListTile(
       dense: true,
+      visualDensity: VisualDensity.compact,
       enabled: !p.agotado,
       leading: Icon(
         sel ? Icons.radio_button_checked : Icons.radio_button_off,
@@ -329,17 +349,14 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       title: Text(
         p.nombreProductoPantalla,
         style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w500,
           color: p.agotado ? AppTheme.colorTextoGris : AppTheme.colorTexto,
         ),
       ),
-      subtitle: Text(
-        p.agotado
-            ? 'AGOTADO'
-            : desc > 0
-                ? '${pvp.toStringAsFixed(2)} € (desc. ${desc.toStringAsFixed(0)}%)'
-                : '${pvp.toStringAsFixed(2)} € · precio carta',
-        style: const TextStyle(fontSize: 12),
-      ),
+      subtitle: p.agotado
+          ? const Text('AGOTADO', style: TextStyle(color: AppTheme.colorAgotado))
+          : null,
       onTap: p.agotado ? null : () => _seleccionarBebidaAlternativa(p.id),
     );
   }
@@ -355,7 +372,7 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (widget.modoEdicion)
+          if (widget.modoEdicion && !widget.soloPostre)
             IconButton(
               icon: const Icon(Icons.delete_outline),
               tooltip: 'Quitar menú del pedido',
@@ -364,7 +381,9 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
           TextButton(
             onPressed: _confirmar,
             child: Text(
-              widget.modoEdicion ? 'Guardar' : 'Añadir',
+              widget.soloPostre
+                  ? 'Añadir postre'
+                  : (widget.modoEdicion ? 'Guardar' : 'Añadir'),
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ),
@@ -373,208 +392,280 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Text(
-              'PVP menú estimado: ${_pvpEstimado.toStringAsFixed(2)} €',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.colorTextoGris,
+          if (!widget.soloPostre)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text(
+                'PVP menú estimado: ${_pvpEstimado.toStringAsFixed(2)} €',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.colorTextoGris,
+                ),
               ),
             ),
-          ),
           Expanded(
             child: ListView(
-              children: [
-                _tituloSeccion('Primeros platos'),
-                if (_primerosBloqueados)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'No aplica: has elegido 2 segundos',
-                      style: TextStyle(color: AppTheme.colorTextoGris),
-                    ),
-                  )
-                else ...[
-                  CheckboxListTile(
-                    dense: true,
-                    value: _dosPrimeros,
-                    onChanged: (v) => _activarDosPrimeros(v ?? false),
-                    title: const Text('2 primeros (sin segundo)'),
-                    subtitle: const Text(
-                      'Sustituye el segundo por otro primero',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-                  if (_primerosLista.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        'No hay primeros configurados hoy',
-                        style: TextStyle(color: AppTheme.colorAgotado),
-                      ),
-                    )
-                  else
-                    ..._primerosLista.map(
-                      (p) => _opcionMulti(
-                        p,
-                        _primeros,
-                        _limitePrimeros,
-                        !_primerosBloqueados,
-                      ),
-                    ),
-                ],
-                _tituloSeccion('Segundos platos'),
-                if (_segundosBloqueados)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'No aplica: has elegido 2 primeros',
-                      style: TextStyle(color: AppTheme.colorTextoGris),
-                    ),
-                  )
-                else ...[
-                  CheckboxListTile(
-                    dense: true,
-                    value: _dosSegundos,
-                    onChanged: (v) => _activarDosSegundos(v ?? false),
-                    title: const Text('2 segundos (sin primero)'),
-                  ),
-                  if (_segundosLista.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        'No hay segundos configurados hoy',
-                        style: TextStyle(color: AppTheme.colorAgotado),
-                      ),
-                    )
-                  else
-                    ..._segundosLista.map(
-                      (p) => _opcionMulti(
-                        p,
-                        _segundos,
-                        _limiteSegundos,
-                        !_segundosBloqueados,
-                      ),
-                    ),
-                ],
-                _tituloSeccion('Bebida del menú'),
-                if (_bebidasMenu.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'No hay bebidas en el menú de hoy',
-                      style: TextStyle(color: AppTheme.colorTextoGris),
-                    ),
-                  )
-                else
-                  ..._bebidasMenu.map(_opcionBebidaMenu),
-                _tituloSeccion('Otra bebida (precio carta)'),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    widget.config.descuentoBebidaAlternativaPct > 0
-                        ? 'Se cobra a precio de carta con ${widget.config.descuentoBebidaAlternativaPct.toStringAsFixed(0)}% de descuento.'
-                        : 'Se cobra a precio normal de carta.',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.colorTextoGris,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: TextField(
-                    controller: _busqBebidaCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Buscar bebida en carta…',
-                      prefixIcon: Icon(Icons.search),
-                      isDense: true,
-                    ),
-                    onChanged: (v) => setState(() => _busqBebida = v),
-                  ),
-                ),
-                if (_bebidasCatalogo.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text(
-                      'No hay bebidas en carta que coincidan',
-                      style: TextStyle(color: AppTheme.colorTextoGris),
-                    ),
-                  )
-                else
-                  ..._bebidasCatalogo.map(_opcionBebidaCatalogo),
-                _tituloSeccion('Postre (opcional)'),
-                RadioGroup<bool>(
-                  groupValue: _sinPostre,
-                  onChanged: (v) {
-                    if (v == null) return;
-                    if (!v && _postresLista.isEmpty) return;
-                    setState(() {
-                      _sinPostre = v;
-                      if (v) _postreId = null;
-                    });
-                  },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      RadioListTile<bool>(
-                        dense: true,
-                        value: true,
-                        title: const Text('Sin postre (elegir después)'),
-                        activeColor: AppTheme.colorPrimario,
-                      ),
-                      RadioListTile<bool>(
-                        dense: true,
-                        value: false,
-                        title: Text(
-                          'Elegir postre ahora',
-                          style: TextStyle(
-                            color: _postresLista.isEmpty
-                                ? AppTheme.colorTextoGris
-                                : null,
-                          ),
-                        ),
-                        activeColor: AppTheme.colorPrimario,
-                      ),
-                    ],
-                  ),
-                ),
-                if (!_sinPostre)
-                  ..._postresLista.map((p) {
-                    final sel = _postreId == p.id;
-                    return ListTile(
-                      dense: true,
-                      enabled: !p.agotado,
-                      leading: Icon(
-                        sel
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_off,
-                        color:
-                            sel ? AppTheme.colorPrimario : AppTheme.colorTextoGris,
-                      ),
-                      title: Text(p.nombre),
-                      onTap: p.agotado
-                          ? null
-                          : () => setState(() => _postreId = p.id),
-                    );
-                  }),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: TextField(
-                    controller: _comentCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Comentario (opcional)',
-                    ),
-                    maxLines: 2,
-                  ),
-                ),
-              ],
+              children: widget.soloPostre
+                  ? _buildSoloPostre()
+                  : _buildFormularioCompleto(),
             ),
           ),
         ],
       ),
     );
+  }
+
+  List<Widget> _buildSoloPostre() {
+    return [
+      if ((widget.comentarioCabecera ?? '').isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            MenuDelDiaSeleccion.comentarioPlatosEnLinea(
+              widget.comentarioCabecera!,
+            ),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Text(
+          'Elige el postre de este menú',
+          style: TextStyle(
+            fontSize: 15,
+            color: AppTheme.colorTextoGris,
+          ),
+        ),
+      ),
+      _tituloSeccion('Postre'),
+      ..._postresLista.map((p) {
+        final sel = _postreId == p.id;
+        return ListTile(
+          dense: true,
+          enabled: !p.agotado,
+          leading: Icon(
+            sel ? Icons.radio_button_checked : Icons.radio_button_off,
+            color: sel ? AppTheme.colorPrimario : AppTheme.colorTextoGris,
+          ),
+          title: Text(
+            p.nombre,
+            style: TextStyle(
+              fontSize: 16,
+              decoration: p.agotado ? TextDecoration.lineThrough : null,
+            ),
+          ),
+          subtitle: p.agotado
+              ? const Text(
+                  'AGOTADO',
+                  style: TextStyle(color: AppTheme.colorAgotado),
+                )
+              : null,
+          onTap: p.agotado ? null : () => setState(() => _postreId = p.id),
+        );
+      }),
+    ];
+  }
+
+  List<Widget> _buildFormularioCompleto() {
+    return [
+      _tituloSeccion('Primeros platos'),
+      if (_primerosBloqueados)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'No aplica: has elegido 2 segundos',
+            style: TextStyle(color: AppTheme.colorTextoGris),
+          ),
+        )
+      else ...[
+        CheckboxListTile(
+          dense: true,
+          value: _dosPrimeros,
+          onChanged: (v) => _activarDosPrimeros(v ?? false),
+          title: const Text(
+            '2 primeros (sin segundo)',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        if (_primerosLista.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'No hay primeros configurados hoy',
+              style: TextStyle(color: AppTheme.colorAgotado),
+            ),
+          )
+        else
+          ..._primerosLista.map(
+            (p) => _opcionMulti(
+              p,
+              _primeros,
+              _limitePrimeros,
+              !_primerosBloqueados,
+            ),
+          ),
+      ],
+      _tituloSeccion('Segundos platos'),
+      if (_segundosBloqueados)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'No aplica: has elegido 2 primeros',
+            style: TextStyle(color: AppTheme.colorTextoGris),
+          ),
+        )
+      else ...[
+        CheckboxListTile(
+          dense: true,
+          value: _dosSegundos,
+          onChanged: (v) => _activarDosSegundos(v ?? false),
+          title: const Text(
+            '2 segundos (sin primero)',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        if (_segundosLista.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'No hay segundos configurados hoy',
+              style: TextStyle(color: AppTheme.colorAgotado),
+            ),
+          )
+        else
+          ..._segundosLista.map(
+            (p) => _opcionMulti(
+              p,
+              _segundos,
+              _limiteSegundos,
+              !_segundosBloqueados,
+            ),
+          ),
+      ],
+      _tituloSeccion('Bebida del menú'),
+      if (_bebidasMenu.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'No hay bebidas en el menú de hoy',
+            style: TextStyle(color: AppTheme.colorTextoGris),
+          ),
+        )
+      else
+        ..._bebidasMenu.map(_opcionBebidaMenu),
+      _tituloSeccion('Otra bebida'),
+      if (widget.config.descuentoBebidaAlternativaPct > 0)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'Descuento del ${widget.config.descuentoBebidaAlternativaPct.toStringAsFixed(0)}% sobre carta.',
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppTheme.colorTextoGris,
+            ),
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: TextField(
+          controller: _busqBebidaCtrl,
+          decoration: const InputDecoration(
+            hintText: 'Buscar bebida en carta…',
+            prefixIcon: Icon(Icons.search),
+            isDense: true,
+          ),
+          onChanged: (v) => setState(() => _busqBebida = v),
+        ),
+      ),
+      if (_buscandoBebidaCatalogo && _bebidasCatalogo.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            'No hay bebidas en carta que coincidan',
+            style: TextStyle(color: AppTheme.colorTextoGris),
+          ),
+        )
+      else if (_buscandoBebidaCatalogo)
+        SizedBox(
+          height: (_bebidasCatalogo.length.clamp(1, 5)) *
+              _alturaFilaBebidaBusqueda,
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: _bebidasCatalogo.length,
+            itemBuilder: (_, i) =>
+                _opcionBebidaCatalogo(_bebidasCatalogo[i]),
+          ),
+        ),
+      _tituloSeccion('Postre (opcional)'),
+      RadioGroup<bool>(
+        groupValue: _sinPostre,
+        onChanged: (v) {
+          if (v == null) return;
+          if (!v && _postresLista.isEmpty) return;
+          setState(() {
+            _sinPostre = v;
+            if (v) _postreId = null;
+          });
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            RadioListTile<bool>(
+              dense: true,
+              value: true,
+              title: const Text('Sin postre (elegir después)'),
+              activeColor: AppTheme.colorPrimario,
+            ),
+            RadioListTile<bool>(
+              dense: true,
+              value: false,
+              title: Text(
+                'Elegir postre ahora',
+                style: TextStyle(
+                  color: _postresLista.isEmpty
+                      ? AppTheme.colorTextoGris
+                      : null,
+                ),
+              ),
+              activeColor: AppTheme.colorPrimario,
+            ),
+          ],
+        ),
+      ),
+      if (!_sinPostre)
+        ..._postresLista.map((p) {
+          final sel = _postreId == p.id;
+          return ListTile(
+            dense: true,
+            enabled: !p.agotado,
+            leading: Icon(
+              sel ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: sel ? AppTheme.colorPrimario : AppTheme.colorTextoGris,
+            ),
+            title: Text(p.nombre),
+            onTap: p.agotado ? null : () => setState(() => _postreId = p.id),
+          );
+        }),
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: TextField(
+          controller: _comentCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Comentario (opcional)',
+          ),
+          maxLines: 2,
+        ),
+      ),
+    ];
   }
 }

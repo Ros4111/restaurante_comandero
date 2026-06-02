@@ -11,6 +11,7 @@ import 'package:image/image.dart' as im;
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
+import '../config/public_pedido_config.dart';
 import '../models/models.dart';
 import 'package:intl/intl.dart';
 
@@ -409,16 +410,51 @@ class SunmiService {
     return _esSunmiImpresoraIntegrada();
   }
 
+  /// Marca del teléfono Sunmi (fabricante).
+  static Future<bool> dispositivoEsMarcaSunmi() async {
+    return _esSunmiImpresoraIntegrada();
+  }
+
+  static bool _textoIndicaSunmi(String value) {
+    final u = value.trim().toUpperCase();
+    return u.contains('SUNMI');
+  }
+
   static Future<bool> _esSunmiImpresoraIntegrada() async {
     if (!Platform.isAndroid) return false;
     try {
       final info = await DeviceInfoPlugin().androidInfo;
-      return info.manufacturer.toUpperCase().contains('SUNMI');
+      return _textoIndicaSunmi(info.manufacturer) ||
+          _textoIndicaSunmi(info.brand) ||
+          _textoIndicaSunmi(info.model);
     } catch (e) {
       debugPrint('No se pudo validar fabricante Sunmi: $e');
       return false;
     }
   }
+
+  static bool _tokenPublicoValido(String token) =>
+      RegExp(r'^[a-f0-9]{32}$', caseSensitive: false).hasMatch(token.trim());
+
+  /// URL pública desde respuesta de guardar o de GET pedido.
+  static String? urlPublicaDesdeMap(Map<String, dynamic> data) {
+    final url = data['url_publica']?.toString().trim() ?? '';
+    if (url.isNotEmpty) return url;
+    var token = data['token_publico']?.toString().trim() ?? '';
+    if (_tokenPublicoValido(token)) {
+      return PublicPedidoConfig.urlConToken(token.toLowerCase());
+    }
+    final cab = data['cabecera'];
+    if (cab is Map) {
+      token = cab['token_publico']?.toString().trim() ?? '';
+      if (_tokenPublicoValido(token)) {
+        return PublicPedidoConfig.urlConToken(token.toLowerCase());
+      }
+    }
+    return null;
+  }
+
+  static Future<void> _prepararImpresoraSunmi() async {}
 
   static Uint8List _pngTarjetaDatfono() {
     const w = 384;
@@ -862,10 +898,73 @@ class SunmiService {
     return '';
   }
 
+  /// Ticket cliente con QR. Devuelve cadena vacía si OK, o mensaje de error.
+  static Future<String> imprimirTicketQrPedidoCliente({
+    required int idMesa,
+    required String urlPublica,
+  }) async {
+    if (!await _esSunmiImpresoraIntegrada()) {
+      return 'Este dispositivo no es Sunmi o no tiene impresora integrada';
+    }
+    try {
+      await _prepararImpresoraSunmi();
+      await SunmiPrinter.printText(
+        'Tu pedido — Mesa $idMesa',
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.CENTER,
+          fontSize: 28,
+          bold: true,
+        ),
+      );
+      await SunmiPrinter.printText(
+        'Escanee el código para ver su pedido',
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.CENTER,
+          fontSize: 22,
+        ),
+      );
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printQRCode(
+        urlPublica,
+        style: SunmiQrcodeStyle(
+          qrcodeSize: 6,
+          errorLevel: SunmiQrcodeLevel.LEVEL_M,
+        ),
+      );
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printText(
+        urlPublica,
+        style: SunmiTextStyle(
+          align: SunmiPrintAlign.CENTER,
+          fontSize: 18,
+        ),
+      );
+      await SunmiPrinter.lineWrap(2);
+      await SunmiPrinter.cutPaper();
+      return '';
+    } catch (e) {
+      debugPrint('Error impresión QR pedido cliente: $e');
+      return 'Error al imprimir QR: $e';
+    }
+  }
+
+  /// Carga datos de pedido (map GET /pedidos) e imprime QR en Sunmi.
+  static Future<String> imprimirQrDesdeDatosPedido({
+    required int idMesa,
+    required Map<String, dynamic> pedidoData,
+  }) async {
+    final url = urlPublicaDesdeMap(pedidoData);
+    if (url == null) {
+      return 'Este pedido no tiene enlace público (token).';
+    }
+    return imprimirTicketQrPedidoCliente(idMesa: idMesa, urlPublica: url);
+  }
+
   static Future<String> _imprimirTextoSunmi(List<String> lineas) async {
     if (!await _esSunmiImpresoraIntegrada()) {
       return 'Este dispositivo no tiene impresora SUNMI integrada';
     }
+    await _prepararImpresoraSunmi();
     for (final line in lineas) {
       await SunmiPrinter.printText(
         line,

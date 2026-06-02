@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/catalogo_provider.dart';
+import '../services/menu_dia_provider.dart';
 import '../utils/theme.dart';
 
 /// Misma regla que [ProductoOpcionesDialog]: predeterminada del catálogo o, si no hay, la primera opción del grupo.
@@ -109,6 +110,7 @@ class _LineasPanelState extends State<LineasPanel> {
   @override
   Widget build(BuildContext context) {
     final catalogo = context.watch<CatalogoProvider>();
+    final menuPv = context.watch<MenuDelDiaProvider>();
     // Solo si el catálogo puede cambiar durante el pedido
     final hayLineas = widget.lineas.isNotEmpty;
 
@@ -125,15 +127,21 @@ class _LineasPanelState extends State<LineasPanel> {
         itemCount: widget.lineas.length,
         itemBuilder: (ctx, i) {
           final l = widget.lineas[i];
+          final prod = catalogo.productoPorId(l.idProducto);
+          final esCabeceraMenuLinea = l.esCabeceraMenuDelDia ||
+              (!l.esDetalleMenuDelDia &&
+                  prod != null &&
+                  menuPv.esProductoMenu(prod));
           return _LineaTile(
             linea: l,
             catalogo: catalogo,
+            menuPv: menuPv,
             soloLectura: widget.soloLectura,
             seleccionada: _indiceSeleccionado == i,
             onTap: l.esDetalleMenuDelDia
                 ? null
                 : () {
-                    if (l.esCabeceraMenuDelDia) {
+                    if (esCabeceraMenuLinea) {
                       widget.onLineaTap(l);
                     } else {
                       _seleccionar(i);
@@ -164,6 +172,7 @@ class _LineasPanelState extends State<LineasPanel> {
 class _LineaTile extends StatelessWidget {
   final LineaPedido linea;
   final CatalogoProvider catalogo;
+  final MenuDelDiaProvider menuPv;
   final bool soloLectura;
   final bool seleccionada;
   final VoidCallback? onTap;
@@ -176,6 +185,7 @@ class _LineaTile extends StatelessWidget {
   const _LineaTile({
     required this.linea,
     required this.catalogo,
+    required this.menuPv,
     required this.soloLectura,
     required this.seleccionada,
     required this.onTap,
@@ -193,7 +203,14 @@ class _LineaTile extends StatelessWidget {
     final esNota = linea.esNotaLibre;
     final esComponente = linea.esComponenteMenu || linea.esDetalleMenuDelDia;
     final esDetalleMenu = linea.esDetalleMenuDelDia;
-    final esCabeceraMenu = linea.esCabeceraMenuDelDia;
+    final producto = catalogo.productoPorId(linea.idProducto);
+    final esCabeceraMenu = linea.esCabeceraMenuDelDia ||
+        (!esDetalleMenu &&
+            producto != null &&
+            menuPv.esProductoMenu(producto));
+    final comentarioVisible = esCabeceraMenu
+        ? MenuDelDiaSeleccion.comentarioPlatosEnLinea(linea.comentario)
+        : linea.comentario;
     final color = esComponente
         ? AppTheme.colorTextoGris
         : (linea.editada
@@ -335,12 +352,12 @@ class _LineaTile extends StatelessWidget {
                 ),
               ),
             ],
-            if (linea.comentario.isNotEmpty) ...[
+            if (comentarioVisible.isNotEmpty) ...[
               const SizedBox(height: 4),
               Padding(
                 padding: const EdgeInsets.only(left: 8),
                 child: Text(
-                  '📝 ${linea.comentario}',
+                  '📝 $comentarioVisible',
                   style: const TextStyle(
                     color: AppTheme.colorTextoGris,
                     fontSize: 13,

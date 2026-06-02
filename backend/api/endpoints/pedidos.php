@@ -124,9 +124,16 @@ function endpointPedidoGet(array $payload, int $idPedido): void {
     if (!$tengoBloqueo) {
         $cabRow['terminal_serie_bloqueo'] = '';
     }
+    ensureTokenPublicoPedidoCabecera($db);
+    $token = trim((string)($cabRow['token_publico'] ?? ''));
+    if ($token === '' || !preg_match('/^[a-f0-9]{32}$/', $token)) {
+        $token = asegurarTokenPublicoPedido($db, $idPedido);
+        $cabRow['token_publico'] = $token;
+    }
     jsonOk([
         'cabecera'  => $cabRow,
         'detalles'  => $detalles,
+        'url_publica' => urlPublicaPedido($cabRow['token_publico']),
         'bloqueo'   => [
             'vigente'       => $vigente,
             'tengo_bloqueo' => $tengoBloqueo,
@@ -459,8 +466,20 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
             }
         }
 
+        $tokenPublico = null;
+        $urlPublica = null;
+        if (!$pedidoEliminado) {
+            $tokenPublico = asegurarTokenPublicoPedido($db, $idPedido);
+            $urlPublica = urlPublicaPedido($tokenPublico);
+        }
+
         $db->commit();
-        jsonOk(['guardado' => true, 'pedido_eliminado' => $pedidoEliminado]);
+        jsonOk([
+            'guardado'         => true,
+            'pedido_eliminado' => $pedidoEliminado,
+            'token_publico'    => $tokenPublico,
+            'url_publica'      => $urlPublica,
+        ]);
     } catch (Throwable $e) {
         $db->rollBack();
         logEvent('Error guardar pedido ' . $idPedido . ': ' . $e->getMessage(), 'error');

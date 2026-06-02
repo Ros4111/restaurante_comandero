@@ -1,0 +1,10 @@
+# Subir esta carpeta a https://www.guardamar.es/pedido/
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /pedido/
+
+  RewriteRule ^api\.php$ - [L]
+  RewriteRule ^index\.html$ - [L]
+
+  RewriteRule ^[a-f0-9]{32}/?$ index.html [L]
+</IfModule>

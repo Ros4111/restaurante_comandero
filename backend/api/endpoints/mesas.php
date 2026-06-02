@@ -48,14 +48,16 @@ function endpointMesaAbrir(array $payload): void {
 
     $db->beginTransaction();
     try {
+        ensureTokenPublicoPedidoCabecera($db);
+        $tokenPublico = generarTokenPublicoPedido();
         liberarOtrasMesasBloqueadasDelTerminal($db, $terminalSerie, (int)$payload['sub']);
         $st = $db->prepare(
             'INSERT INTO pedido_cabecera
              (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
-              hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo)
-             VALUES (?, ?, ?, NOW(), NOW(), \'\', ?)'
+              hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo, token_publico)
+             VALUES (?, ?, ?, NOW(), NOW(), \'\', ?, ?)'
         );
-        $st->execute([$mesa, $payload['sub'], $payload['sub'], $terminalSerie]);
+        $st->execute([$mesa, $payload['sub'], $payload['sub'], $terminalSerie, $tokenPublico]);
         $id = (int)$db->lastInsertId();
         verificarBloqueoPersistido($db, $id, $terminalSerie);
         $db->commit();
@@ -63,6 +65,8 @@ function endpointMesaAbrir(array $payload): void {
             'id_pedido'      => $id,
             'bloqueado'      => true,
             'terminal_serie' => $terminalSerie,
+            'token_publico'  => $tokenPublico,
+            'url_publica'    => urlPublicaPedido($tokenPublico),
         ]);
     } catch (Throwable $e) {
         $db->rollBack();
@@ -232,14 +236,17 @@ function endpointMesaCerrar(array $payload, int $idPedido): void {
         _verificarBloqueo($cab, $payload, $terminalSerie);
 
         // Copiar a histórico (columnas explícitas: orden distinto en tablas históricas)
+        ensureTokenPublicoPedidoCabecera($db);
+        asegurarTokenPublicoPedido($db, $idPedido);
+
         $db->prepare(
             'INSERT INTO pedido_cabecera_historico
              (id_pedido, id_mesa, hora_creacion, nombre_cliente, id_usuario_creacion,
               terminal_serie_bloqueo, hora_ultima_accion, estado_mesa, id_usuario_bloqueo,
-              hora_bloqueo, base_imponible, importe_IVA, hora_cierre)
+              hora_bloqueo, base_imponible, importe_IVA, hora_cierre, token_publico)
              SELECT id_pedido, id_mesa, hora_creacion, nombre_cliente, id_usuario_creacion,
               terminal_serie_bloqueo, hora_ultima_accion, estado_mesa, id_usuario_bloqueo,
-              hora_bloqueo, base_imponible, importe_IVA, NOW()
+              hora_bloqueo, base_imponible, importe_IVA, NOW(), token_publico
                FROM pedido_cabecera WHERE id_pedido = ?'
         )->execute([$idPedido]);
 

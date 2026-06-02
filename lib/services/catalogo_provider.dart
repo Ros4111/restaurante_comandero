@@ -389,6 +389,22 @@ class MesaProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void insertarLineaDespues(LineaPedido referencia, LineaPedido linea) {
+    final idx = lineas.indexOf(referencia);
+    if (idx < 0) {
+      agregarLinea(linea);
+      return;
+    }
+    final ordenRef = lineas[idx].orden;
+    linea.orden = ordenRef + 1;
+    for (var i = idx + 1; i < lineas.length; i++) {
+      if (lineas[i].orden <= ordenRef) continue;
+      lineas[i].orden++;
+    }
+    lineas.insert(idx + 1, linea);
+    notifyListeners();
+  }
+
   void eliminarLinea(LineaPedido linea) {
     if (linea.idLinea != null) {
       _lineasBorradas.add(linea.idLinea!);

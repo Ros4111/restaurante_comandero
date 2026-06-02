@@ -119,6 +119,69 @@ function ensureMenuDelDiaTables(PDO $db): void {
     }
 }
 
+/** URL base para el QR del pedido (sin barra final). */
+function urlBasePublicaPedido(): string {
+    return 'https://www.guardamar.es/pedido';
+}
+
+function ensureTokenPublicoPedidoCabecera(PDO $db): void {
+    try {
+        $check = $db->query("SHOW COLUMNS FROM pedido_cabecera LIKE 'token_publico'");
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                'ALTER TABLE pedido_cabecera
+                 ADD COLUMN token_publico CHAR(32) NULL DEFAULT NULL,
+                 ADD UNIQUE KEY uk_pedido_token_publico (token_publico)'
+            );
+        }
+    } catch (Throwable $e) {
+    }
+    try {
+        $check = $db->query("SHOW COLUMNS FROM pedido_cabecera_historico LIKE 'token_publico'");
+        if (!$check || !$check->fetch()) {
+            $db->exec(
+                'ALTER TABLE pedido_cabecera_historico
+                 ADD COLUMN token_publico CHAR(32) NULL DEFAULT NULL,
+                 ADD UNIQUE KEY uk_pedido_hist_token_publico (token_publico)'
+            );
+        }
+    } catch (Throwable $e) {
+    }
+}
+
+function generarTokenPublicoPedido(): string {
+    return bin2hex(random_bytes(16));
+}
+
+function asegurarTokenPublicoPedido(PDO $db, int $idPedido): string {
+    ensureTokenPublicoPedidoCabecera($db);
+    $st = $db->prepare('SELECT token_publico FROM pedido_cabecera WHERE id_pedido = ?');
+    $st->execute([$idPedido]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        jsonError('Pedido no encontrado', 404);
+    }
+    $token = trim((string)($row['token_publico'] ?? ''));
+    if ($token !== '' && preg_match('/^[a-f0-9]{32}$/', $token)) {
+        return $token;
+    }
+    do {
+        $token = generarTokenPublicoPedido();
+        $dup = $db->prepare(
+            'SELECT 1 FROM pedido_cabecera WHERE token_publico = ?
+             UNION SELECT 1 FROM pedido_cabecera_historico WHERE token_publico = ? LIMIT 1'
+        );
+        $dup->execute([$token, $token]);
+    } while ($dup->fetch());
+    $db->prepare('UPDATE pedido_cabecera SET token_publico = ? WHERE id_pedido = ?')
+        ->execute([$token, $idPedido]);
+    return $token;
+}
+
+function urlPublicaPedido(string $token): string {
+    return urlBasePublicaPedido() . '/' . $token;
+}
+
 /** id_producto del producto cabecera Menú del Día (filtro menu_dia). */
 function idProductoMenuDelDia(PDO $db): ?int {
     ensureAgotadoColumnProductos($db);

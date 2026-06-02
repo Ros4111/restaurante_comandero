@@ -39,6 +39,9 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Credenciales locales del visor web de pedidos
+/pedido/config.php
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

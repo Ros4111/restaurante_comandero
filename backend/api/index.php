@@ -59,6 +59,11 @@ if ($uri === '/check-opciones' && $method === 'GET') {
     endpointCheckOpciones();
 }
 
+if (preg_match('#^/public/pedido/([a-f0-9]{32})$#', $uri, $m) && $method === 'GET') {
+    require __DIR__ . '/endpoints/public_pedido.php';
+    endpointPublicPedidoGet($m[1]);
+}
+
 // ── Rutas protegidas ─────────────────────────────────────────
 $payload = requireAuth();
 

@@ -334,6 +334,19 @@ class _MesasScreenState extends State<MesasScreen> {
                     _imprimirPrecuenta(mesa);
                   },
                 ),
+                ListTile(
+                  leading:
+                      const Icon(Icons.qr_code_2, color: AppTheme.colorPrimario),
+                  title: const Text('Imprimir QR del pedido'),
+                  subtitle: const Text(
+                    'Código para que el cliente vea su pedido en el móvil',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _imprimirQrPedido(mesa);
+                  },
+                ),
                 if (sesion.esAdmin)
                   ListTile(
                     leading: const Icon(Icons.history, color: Colors.white70),
@@ -484,6 +497,50 @@ class _MesasScreenState extends State<MesasScreen> {
     } on ApiException catch (e) {
       _showError(e.message);
     } catch (e) {
+      _showError(e.toString());
+    }
+  }
+
+  Future<void> _imprimirQrPedido(MesaResumen mesa) async {
+    final api = context.read<ApiService>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        backgroundColor: Color(0xFF1E1E2C),
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Preparando QR…'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final data = await api.getPedido(mesa.idPedido);
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      final error = await SunmiService.imprimirQrDesdeDatosPedido(
+        idMesa: mesa.idMesa,
+        pedidoData: data,
+      );
+
+      if (!mounted) return;
+      if (error.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('QR del pedido impreso'),
+          backgroundColor: Colors.green,
+        ));
+      } else {
+        _showError(error);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
       _showError(e.toString());
     }
   }
