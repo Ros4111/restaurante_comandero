@@ -420,6 +420,7 @@ class MesaProvider extends ChangeNotifier {
     int? moverAMesa,
     Map<int, OpcionElegida>? opcionesElegidas,
     bool? urgente,
+    int? menuGrupoLocal,
     bool marcarEditada = false,
   }) {
     final idx = lineas.indexOf(linea);
@@ -430,8 +431,18 @@ class MesaProvider extends ChangeNotifier {
       moverAMesa: moverAMesa,
       opcionesElegidas: opcionesElegidas,
       urgente: urgente,
+      menuGrupoLocal: menuGrupoLocal,
       editada: marcarEditada ? true : linea.editada,
     );
+    notifyListeners();
+  }
+
+  void asignarGrupoMenu(List<LineaPedido> delGrupo, int grupo) {
+    for (final linea in delGrupo) {
+      final idx = lineas.indexOf(linea);
+      if (idx < 0) continue;
+      lineas[idx] = linea.copyWith(menuGrupoLocal: grupo);
+    }
     notifyListeners();
   }
 

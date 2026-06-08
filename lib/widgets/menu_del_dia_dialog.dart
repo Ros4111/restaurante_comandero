@@ -33,10 +33,8 @@ class MenuDelDiaDialog extends StatefulWidget {
 }
 
 class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
-  bool _dosPrimeros = false;
-  bool _dosSegundos = false;
-  final Set<int> _primeros = {};
-  final Set<int> _segundos = {};
+  /// Orden de elección: el 1.º tocado es primero, el 2.º es segundo (FIFO si hay 3.º).
+  final List<int> _ordenPlatos = [];
   int? _bebidaMenuId;
   int? _bebidaAlternativaId;
   int? _postreId;
@@ -53,10 +51,8 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       if (widget.soloPostre) _sinPostre = false;
       return;
     }
-    _dosPrimeros = ini.dosPrimeros;
-    _dosSegundos = ini.dosSegundos;
-    _primeros.addAll(ini.primeros);
-    _segundos.addAll(ini.segundos);
+    _ordenPlatos.addAll(ini.primeros);
+    _ordenPlatos.addAll(ini.segundos);
     if (ini.bebidaId != null) {
       if (ini.bebidaDelMenu) {
         _bebidaMenuId = ini.bebidaId;
@@ -87,11 +83,53 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
   List<MenuDelDiaProductoItem> get _postresLista =>
       widget.config.productosGrupo('postre');
 
-  bool get _primerosBloqueados => _dosSegundos;
-  bool get _segundosBloqueados => _dosPrimeros;
+  List<int> get _primerosDesdeOrden =>
+      _ordenPlatos.isEmpty ? const [] : [_ordenPlatos.first];
 
-  int get _limitePrimeros => _dosPrimeros ? 2 : (_dosSegundos ? 0 : 1);
-  int get _limiteSegundos => _dosSegundos ? 2 : (_dosPrimeros ? 0 : 1);
+  List<int> get _segundosDesdeOrden =>
+      _ordenPlatos.length < 2 ? const [] : [_ordenPlatos[1]];
+
+  int? get _idAnclaPrimero =>
+      _ordenPlatos.isEmpty ? null : _ordenPlatos.first;
+
+  bool _esPrimero(int id) =>
+      _ordenPlatos.isNotEmpty && _ordenPlatos[0] == id;
+
+  bool _esSegundo(int id) =>
+      _ordenPlatos.length >= 2 && _ordenPlatos[1] == id;
+
+  bool _mismoPlatoDosVeces(int id) =>
+      _ordenPlatos.length == 2 &&
+      _ordenPlatos[0] == id &&
+      _ordenPlatos[1] == id;
+
+  /// Dos casillas (1º y 2º) solo en el plato elegido primero (o repetido 2×).
+  bool _mostrarDosCheckboxes(int id) {
+    final ancla = _idAnclaPrimero;
+    if (ancla == null || ancla != id) return false;
+    return _ordenPlatos.length == 1 || _mismoPlatoDosVeces(id);
+  }
+
+  String? _etiquetaPuesto(int id) {
+    if (_esPrimero(id) && _esSegundo(id)) return '1º y 2º';
+    if (_esPrimero(id)) return '1º';
+    if (_esSegundo(id)) return '2º';
+    return null;
+  }
+
+  String _nombrePlato(int id) {
+    final p = widget.catalogo.productoPorId(id);
+    if (p != null) return p.nombreProductoPantalla;
+    for (final item in [
+      ..._primerosLista,
+      ..._segundosLista,
+      ..._bebidasMenu,
+      ..._postresLista,
+    ]) {
+      if (item.id == id) return item.nombre;
+    }
+    return '#$id';
+  }
 
   bool _esBebidaCatalogo(Producto p) {
     if (p.filtro == MenuDelDiaConfig.filtroProductoMenu) return false;
@@ -156,56 +194,73 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
     return total;
   }
 
-  void _activarDosPrimeros(bool v) {
+  void _togglePrimero(int id, bool value) {
     setState(() {
-      _dosPrimeros = v;
-      if (v) {
-        _dosSegundos = false;
-        _segundos.clear();
+      if (!value) {
+        _ordenPlatos.clear();
+        return;
       }
-      if (!v && _primeros.length > 2) {
-        final lista = _primeros.toList()..sort();
-        _primeros
-          ..clear()
-          ..addAll(lista.take(2));
+      if (_ordenPlatos.isEmpty) {
+        _ordenPlatos.add(id);
+        return;
+      }
+      if (_ordenPlatos.length == 1) {
+        if (_ordenPlatos[0] == id) return;
+        _ordenPlatos[0] = id;
+        return;
+      }
+      _ordenPlatos
+        ..removeAt(0)
+        ..insert(0, id);
+    });
+  }
+
+  void _toggleSegundo(int id, bool value) {
+    setState(() {
+      if (_ordenPlatos.isEmpty || _ordenPlatos[0] != id) return;
+      if (!value) {
+        if (_ordenPlatos.length >= 2 && _ordenPlatos[1] == id) {
+          _ordenPlatos.removeAt(1);
+        }
+        return;
+      }
+      if (_ordenPlatos.length == 1) {
+        _ordenPlatos.add(id);
+      } else if (_ordenPlatos.length == 2 && _ordenPlatos[1] != id) {
+        _ordenPlatos[1] = id;
       }
     });
   }
 
-  void _activarDosSegundos(bool v) {
+  void _seleccionarPlato(int id) {
     setState(() {
-      _dosSegundos = v;
-      if (v) {
-        _dosPrimeros = false;
-        _primeros.clear();
+      if (_ordenPlatos.isEmpty) {
+        _ordenPlatos.add(id);
+        return;
       }
-      if (!v && _segundos.length > 2) {
-        final lista = _segundos.toList()..sort();
-        _segundos
-          ..clear()
-          ..addAll(lista.take(2));
+      if (_ordenPlatos.length == 1) {
+        if (_ordenPlatos[0] == id) {
+          _ordenPlatos.add(id);
+        } else {
+          _ordenPlatos.add(id);
+        }
+        return;
       }
-    });
-  }
-
-  void _toggleSeleccion(Set<int> set, int id, int limite, bool habilitado) {
-    if (!habilitado || limite <= 0) return;
-    setState(() {
-      if (set.contains(id)) {
-        set.remove(id);
-      } else if (set.length < limite) {
-        set.add(id);
-      } else if (limite == 1) {
-        set
-          ..clear()
-          ..add(id);
-      } else {
-        final first = set.first;
-        set
-          ..clear()
-          ..add(first == id ? set.last : first)
-          ..add(id);
+      if (_esPrimero(id) && _esSegundo(id)) {
+        _ordenPlatos.removeAt(1);
+        return;
       }
+      if (_esSegundo(id)) {
+        _ordenPlatos.removeAt(1);
+        return;
+      }
+      if (_esPrimero(id)) {
+        _ordenPlatos.removeAt(0);
+        return;
+      }
+      _ordenPlatos
+        ..removeAt(0)
+        ..add(id);
     });
   }
 
@@ -228,13 +283,8 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       if (_postreId == null) return 'Elige un postre';
       return null;
     }
-    if (_dosPrimeros) {
-      if (_primeros.length != 2) return 'Elige 2 primeros platos';
-    } else if (_dosSegundos) {
-      if (_segundos.length != 2) return 'Elige 2 segundos platos';
-    } else {
-      if (_primeros.length != 1) return 'Elige un primer plato';
-      if (_segundos.length != 1) return 'Elige un segundo plato';
+    if (_ordenPlatos.length != 2) {
+      return 'Elige 2 platos: el primero que toques es 1º, el segundo es 2º';
     }
     if (_bebidaMenuId == null && _bebidaAlternativaId == null) {
       return 'Elige una bebida';
@@ -259,14 +309,14 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
       return;
     }
     Navigator.pop(context, {
-      'primeros': _primeros.toList(),
-      'segundos': _segundos.toList(),
+      'primeros': _primerosDesdeOrden,
+      'segundos': _segundosDesdeOrden,
       'bebida_id': bebidaId,
       'bebida_del_menu': _bebidaMenuId != null,
       'postre_id': _sinPostre ? null : _postreId,
       'comentario': _comentCtrl.text.trim(),
-      'dos_primeros': _dosPrimeros,
-      'dos_segundos': _dosSegundos,
+      'dos_primeros': false,
+      'dos_segundos': false,
     });
   }
 
@@ -282,33 +332,117 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
         ),
       );
 
-  Widget _opcionMulti(
-    MenuDelDiaProductoItem item,
-    Set<int> seleccion,
-    int limite,
-    bool habilitado,
-  ) {
-    final sel = seleccion.contains(item.id);
-    return CheckboxListTile(
+  Widget _opcionMulti(MenuDelDiaProductoItem item) {
+    final id = item.id;
+    final esPrimero = _esPrimero(id);
+    final esSegundo = _esSegundo(id);
+    final dosCasillas = _mostrarDosCheckboxes(id);
+    final puesto = _etiquetaPuesto(id);
+
+    Widget leading;
+    if (dosCasillas) {
+      leading = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Checkbox(
+            value: esPrimero,
+            onChanged: item.agotado
+                ? null
+                : (v) => _togglePrimero(id, v ?? false),
+            activeColor: AppTheme.colorPrimario,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          Checkbox(
+            value: esSegundo,
+            onChanged: item.agotado
+                ? null
+                : (v) => _toggleSegundo(id, v ?? false),
+            activeColor: AppTheme.colorPrimario,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      );
+    } else {
+      leading = Checkbox(
+        value: esPrimero || esSegundo,
+        onChanged: item.agotado
+            ? null
+            : (v) {
+                if (v == true) {
+                  if (_ordenPlatos.isEmpty) {
+                    _togglePrimero(id, true);
+                  } else if (_ordenPlatos.length == 1 &&
+                      _ordenPlatos[0] != id) {
+                    setState(() => _ordenPlatos.add(id));
+                  } else {
+                    _togglePrimero(id, true);
+                  }
+                } else {
+                  if (esSegundo) {
+                    setState(() => _ordenPlatos.removeAt(1));
+                  } else if (esPrimero) {
+                    _togglePrimero(id, false);
+                  }
+                }
+              },
+        activeColor: AppTheme.colorPrimario,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      );
+    }
+
+    return ListTile(
       dense: true,
-      value: sel,
-      onChanged: habilitado && !item.agotado
-          ? (_) => _toggleSeleccion(seleccion, item.id, limite, habilitado)
-          : null,
+      enabled: !item.agotado,
+      leading: leading,
       title: Text(
         item.nombre,
         style: TextStyle(
           fontSize: 16,
-          color: item.agotado || !habilitado
-              ? AppTheme.colorTextoGris
-              : AppTheme.colorTexto,
+          color: item.agotado ? AppTheme.colorTextoGris : AppTheme.colorTexto,
           decoration: item.agotado ? TextDecoration.lineThrough : null,
         ),
       ),
       subtitle: item.agotado
           ? const Text('AGOTADO', style: TextStyle(color: AppTheme.colorAgotado))
-          : null,
-      activeColor: AppTheme.colorPrimario,
+          : puesto != null
+              ? Text(
+                  'Elegido como $puesto',
+                  style: const TextStyle(
+                    color: AppTheme.colorPrimario,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              : null,
+      onTap: item.agotado ? null : () => _seleccionarPlato(id),
+    );
+  }
+
+  Widget _resumenOrdenPlatos() {
+    if (_ordenPlatos.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: Text(
+          'Toca los platos en el orden que quieras servirlos. '
+          'El primero será 1º y el siguiente 2º (aunque esté en la otra lista).',
+          style: TextStyle(fontSize: 14, color: AppTheme.colorTextoGris),
+        ),
+      );
+    }
+    final partes = <String>[];
+    for (var i = 0; i < _ordenPlatos.length; i++) {
+      final et = i == 0 ? '1º' : '2º';
+      partes.add('$et ${_nombrePlato(_ordenPlatos[i])}');
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Text(
+        'Orden: ${partes.join(' · ')}',
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.colorPrimario,
+        ),
+      ),
     );
   }
 
@@ -472,86 +606,29 @@ class _MenuDelDiaDialogState extends State<MenuDelDiaDialog> {
 
   List<Widget> _buildFormularioCompleto() {
     return [
+      _resumenOrdenPlatos(),
       _tituloSeccion('Primeros platos'),
-      if (_primerosBloqueados)
+      if (_primerosLista.isEmpty)
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: Text(
-            'No aplica: has elegido 2 segundos',
-            style: TextStyle(color: AppTheme.colorTextoGris),
+            'No hay primeros configurados hoy',
+            style: TextStyle(color: AppTheme.colorAgotado),
           ),
         )
-      else ...[
-        CheckboxListTile(
-          dense: true,
-          value: _dosPrimeros,
-          onChanged: (v) => _activarDosPrimeros(v ?? false),
-          title: const Text(
-            '2 primeros (sin segundo)',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        if (_primerosLista.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'No hay primeros configurados hoy',
-              style: TextStyle(color: AppTheme.colorAgotado),
-            ),
-          )
-        else
-          ..._primerosLista.map(
-            (p) => _opcionMulti(
-              p,
-              _primeros,
-              _limitePrimeros,
-              !_primerosBloqueados,
-            ),
-          ),
-      ],
+      else
+        ..._primerosLista.map(_opcionMulti),
       _tituloSeccion('Segundos platos'),
-      if (_segundosBloqueados)
+      if (_segundosLista.isEmpty)
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: Text(
-            'No aplica: has elegido 2 primeros',
-            style: TextStyle(color: AppTheme.colorTextoGris),
+            'No hay segundos configurados hoy',
+            style: TextStyle(color: AppTheme.colorAgotado),
           ),
         )
-      else ...[
-        CheckboxListTile(
-          dense: true,
-          value: _dosSegundos,
-          onChanged: (v) => _activarDosSegundos(v ?? false),
-          title: const Text(
-            '2 segundos (sin primero)',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        if (_segundosLista.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'No hay segundos configurados hoy',
-              style: TextStyle(color: AppTheme.colorAgotado),
-            ),
-          )
-        else
-          ..._segundosLista.map(
-            (p) => _opcionMulti(
-              p,
-              _segundos,
-              _limiteSegundos,
-              !_segundosBloqueados,
-            ),
-          ),
-      ],
+      else
+        ..._segundosLista.map(_opcionMulti),
       _tituloSeccion('Bebida del menú'),
       if (_bebidasMenu.isEmpty)
         const Padding(

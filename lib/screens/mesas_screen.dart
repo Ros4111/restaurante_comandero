@@ -174,7 +174,7 @@ class _MesasScreenState extends State<MesasScreen> {
     try {
       // abrir_mesa ya deja la mesa bloqueada por este terminal; no hace falta bloquear de nuevo.
       final idPedido = await api.abrirMesa(num);
-      _navPedido(idPedido, num, bloqueadoPorMi: true);
+      _navPedido(idPedido, num, bloqueadoPorMi: true, mesaRecienCreada: true);
     } on ApiException catch (e) {
       if (mounted) setState(() => _fabVisible = true);
       _showError(e.message);
@@ -205,7 +205,9 @@ class _MesasScreenState extends State<MesasScreen> {
   }
 
   void _navPedido(int idPedido, int idMesa,
-      {required bool bloqueadoPorMi, String? bloqueador}) {
+      {required bool bloqueadoPorMi,
+      String? bloqueador,
+      bool mesaRecienCreada = false}) {
     setState(() => _cargandoMesa = true);
     Navigator.push(
       context,
@@ -215,6 +217,7 @@ class _MesasScreenState extends State<MesasScreen> {
           idMesa: idMesa,
           bloqueadoPorMi: bloqueadoPorMi,
           bloqueador: bloqueador,
+          mesaRecienCreada: mesaRecienCreada,
         ),
       ),
     ).whenComplete(() {

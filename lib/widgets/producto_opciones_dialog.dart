@@ -323,7 +323,7 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
                         onPressed: () async {
                           final mesaStr = await showDialog<String>(
                             context: context,
-                            builder: (_) => const _SeleccionarMesaDialog(),
+                            builder: (_) => const SeleccionarMesaDialog(),
                           );
                           if (mesaStr == null || mesaStr.isEmpty) return;
                           final numMesa = int.tryParse(mesaStr);
@@ -357,14 +357,14 @@ class _ProductoOpcionesDialogState extends State<ProductoOpcionesDialog> {
 
 // ── Diálogo selector de número de mesa ─────────────────────────
 
-class _SeleccionarMesaDialog extends StatefulWidget {
-  const _SeleccionarMesaDialog();
+class SeleccionarMesaDialog extends StatefulWidget {
+  const SeleccionarMesaDialog({super.key});
 
   @override
-  State<_SeleccionarMesaDialog> createState() => _SeleccionarMesaDialogState();
+  State<SeleccionarMesaDialog> createState() => _SeleccionarMesaDialogState();
 }
 
-class _SeleccionarMesaDialogState extends State<_SeleccionarMesaDialog> {
+class _SeleccionarMesaDialogState extends State<SeleccionarMesaDialog> {
   String _numero = '';
 
   void _tecla(String v) {

@@ -1,4 +1,6 @@
 // lib/widgets/tecla_numerica_button.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../utils/theme.dart';
@@ -23,7 +25,42 @@ class TeclaNumericaButton extends StatefulWidget {
 }
 
 class _TeclaNumericaButtonState extends State<TeclaNumericaButton> {
+  static const _duracionAzul = Duration(milliseconds: 100);
+
   bool _pressed = false;
+  DateTime? _pressedAt;
+  Timer? _releaseTimer;
+
+  @override
+  void dispose() {
+    _releaseTimer?.cancel();
+    super.dispose();
+  }
+
+  void _activarPressed() {
+    _releaseTimer?.cancel();
+    _pressedAt = DateTime.now();
+    if (!_pressed) setState(() => _pressed = true);
+  }
+
+  void _programarSoltar() {
+    _releaseTimer?.cancel();
+    final inicio = _pressedAt;
+    if (inicio == null) {
+      if (_pressed && mounted) setState(() => _pressed = false);
+      return;
+    }
+    final restante =
+        _duracionAzul - DateTime.now().difference(inicio);
+    if (restante <= Duration.zero) {
+      if (mounted) setState(() => _pressed = false);
+      return;
+    }
+    _releaseTimer = Timer(restante, () {
+      _releaseTimer = null;
+      if (mounted) setState(() => _pressed = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,9 +69,9 @@ class _TeclaNumericaButtonState extends State<TeclaNumericaButton> {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-      onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-      onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+      onTapDown: enabled ? (_) => _activarPressed() : null,
+      onTapUp: enabled ? (_) => _programarSoltar() : null,
+      onTapCancel: enabled ? _programarSoltar : null,
       onTap: widget.onTap,
       child: DecoratedBox(
         decoration: BoxDecoration(

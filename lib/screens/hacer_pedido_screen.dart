@@ -25,6 +25,8 @@ class HacerPedidoScreen extends StatefulWidget {
   final int idMesa;
   final bool bloqueadoPorMi;
   final String? bloqueador;
+  /// Mesa abierta con «Abrir mesa» (pedido vacío); solo entonces se imprime QR al 1er guardado.
+  final bool mesaRecienCreada;
 
   const HacerPedidoScreen({
     super.key,
@@ -32,6 +34,7 @@ class HacerPedidoScreen extends StatefulWidget {
     required this.idMesa,
     required this.bloqueadoPorMi,
     this.bloqueador,
+    this.mesaRecienCreada = false,
   });
 
   @override
@@ -51,6 +54,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   /// Solo desbloquear en servidor al pulsar Salir (no en dispose).
   bool _salidaExplicita = false;
+
+  /// Cierre de mesa en curso (evita ping/recargas que vacían la pantalla).
+  bool _cerrandoMesa = false;
 
   /// Marca la primera pulsacion de la flecha atras en el nivel raiz del catalogo.
   DateTime? _primeraPresionFlechaAtras;
@@ -284,6 +290,35 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     if (_bloqueoPerdido || !tengoBloqueo) {
       mesaPv.forzarSoloLectura(bloqueador: bloqueador);
     }
+    _reasignarGruposMenuCargados(mesaPv);
+  }
+
+  /// Vincula cabecera + detalle de menús ya guardados (sin menuGrupoLocal en BD).
+  void _reasignarGruposMenuCargados(MesaProvider mesaPv) {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    var next = 1;
+    for (var i = 0; i < mesaPv.lineas.length; i++) {
+      final l = mesaPv.lineas[i];
+      if (!_esCabeceraMenuProducto(l, menuPv, catalogo)) continue;
+      final grupo = next++;
+      final asociadas = <LineaPedido>[];
+      for (var j = i; j < mesaPv.lineas.length; j++) {
+        final lj = mesaPv.lineas[j];
+        if (j > i && _esCabeceraMenuProducto(lj, menuPv, catalogo)) break;
+        if (j == i) {
+          asociadas.add(lj);
+        } else if (lj.esDetalleMenuDelDia) {
+          asociadas.add(lj);
+        } else {
+          break;
+        }
+      }
+      mesaPv.asignarGrupoMenu(asociadas, grupo);
+    }
+    if (next > _nextMenuGrupoLocal) {
+      _nextMenuGrupoLocal = next;
+    }
   }
 
   void _onFlechaAtrasPressed() {
@@ -403,6 +438,7 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
   }
 
   Future<void> _ping({bool soloRenovar = false}) async {
+    if (_cerrandoMesa || _salidaExplicita) return;
     final api = context.read<ApiService>();
     try {
       await api.pingMesa(widget.idPedido);
@@ -432,12 +468,13 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     Map<String, dynamic> respGuardar, {
     required List<LineaPedido> lineasNuevas,
   }) async {
+    if (!widget.mesaRecienCreada) return;
     final mesaPv = context.read<MesaProvider>();
     final api = context.read<ApiService>();
     if (_qrClienteImpresoEnSesion) return;
     if (!await SunmiService.dispositivoEsMarcaSunmi()) return;
-
-    if (mesaPv.lineas.isEmpty && lineasNuevas.isEmpty) return;
+    if (lineasNuevas.isEmpty) return;
+    if (mesaPv.lineas.isEmpty) return;
 
     var url = SunmiService.urlPublicaDesdeMap(respGuardar);
     if (url == null) {
@@ -457,18 +494,21 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       return;
     }
 
+    _qrClienteImpresoEnSesion = true;
+
     final err = await SunmiService.imprimirTicketQrPedidoCliente(
       idMesa: widget.idMesa,
       urlPublica: url,
     );
-    if (err.isEmpty) {
-      _qrClienteImpresoEnSesion = true;
-    } else if (mounted) {
+    if (err.isNotEmpty && mounted) {
       _showError(err);
     }
   }
 
-  Future<bool> _guardar({bool imprimir = true}) async {
+  Future<bool> _guardar({
+    bool imprimir = true,
+    bool recargarTrasGuardar = true,
+  }) async {
     if (_guardando) return false;
     _syncNombreCliente();
     final api = context.read<ApiService>();
@@ -528,7 +568,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       final pedidoBorrado = resp['pedido_eliminado'] == true ||
           resp['pedido_eliminado']?.toString() == '1';
 
-      if (!_qrClienteImpresoEnSesion && !pedidoBorrado) {
+      if (widget.mesaRecienCreada &&
+          !_qrClienteImpresoEnSesion &&
+          !pedidoBorrado &&
+          lineasNuevas.isNotEmpty) {
         await _imprimirQrClienteTrasGuardar(resp, lineasNuevas: lineasNuevas);
       }
 
@@ -545,7 +588,9 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       }
 
       if (mounted) setState(() => _bloqueoPerdido = false);
-      await _cargarPedido(salirSiNoExiste: false);
+      if (recargarTrasGuardar) {
+        await _cargarPedido(salirSiNoExiste: false);
+      }
       return true;
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
@@ -667,33 +712,47 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       ),
     );
     confirmCtrl.dispose();
-    if (ok != true) return;
-    final guardadoOk = await _guardar();
+    if (ok != true || !mounted) return;
+
+    final navigator = Navigator.of(context);
+    final mesaProvider = context.read<MesaProvider>();
+
+    final guardadoOk = await _guardar(
+      imprimir: false,
+      recargarTrasGuardar: false,
+    );
     if (!guardadoOk || !mounted) return;
 
     final catalogo = context.read<CatalogoProvider>();
-    final totales = _calcularTotales(mesaPv.lineas, catalogo);
+    final totales = _calcularTotales(mesaProvider.lineas, catalogo);
     if (cashlogyOn && totales.total > 0) {
       final cobrado = await _cobrarEnCashlogy(totales.total);
       if (!cobrado || !mounted) return;
     }
 
+    _cerrandoMesa = true;
+    _pingTimer?.cancel();
     try {
       await api.cerrarMesa(widget.idPedido);
-      if (mounted) {
-        context.read<MesaProvider>().reset();
-        Navigator.pop(context);
+      _salidaExplicita = true;
+      mesaProvider.reset();
+      if (navigator.canPop()) {
+        navigator.pop();
       }
     } on ApiException catch (e) {
       if (_esMesaNoEncontrada(e)) {
-        await _salirPorMesaNoEncontrada(
-          'La mesa ya no está activa (posiblemente cerrada).',
-        );
-      } else {
+        _salidaExplicita = true;
+        mesaProvider.reset();
+        if (navigator.canPop()) {
+          navigator.pop();
+        }
+      } else if (mounted) {
         _showError(e.message);
       }
     } catch (e) {
-      _showError(e.toString());
+      if (mounted) _showError(e.toString());
+    } finally {
+      _cerrandoMesa = false;
     }
   }
 
@@ -832,17 +891,18 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     final catalogo = context.read<CatalogoProvider>();
     if (mesaPv.lineas.isNotEmpty) {
       final ultima = mesaPv.lineas.last;
-      if (_lineaMismaConfiguracionProducto(
-        catalogo,
-        ultima,
-        p,
-        comentario,
-        opciones,
-      )) {
+      // Solo acumular en la última línea si es de esta sesión (roja, sin id_linea).
+      if (ultima.esNuevo &&
+          _lineaMismaConfiguracionProducto(
+            catalogo,
+            ultima,
+            p,
+            comentario,
+            opciones,
+          )) {
         mesaPv.modificarLinea(
           ultima,
           cantidad: ultima.cantidad + cantidad,
-          marcarEditada: !ultima.esNuevo,
         );
         return;
       }
@@ -950,6 +1010,118 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       }
     }
     return out;
+  }
+
+  Future<int?> _pedirMesaDestino() async {
+    final mesaStr = await showDialog<String>(
+      context: context,
+      builder: (_) => const SeleccionarMesaDialog(),
+    );
+    if (mesaStr == null || mesaStr.isEmpty) return null;
+    final numMesa = int.tryParse(mesaStr);
+    if (numMesa == null || numMesa <= 0) return null;
+    return numMesa;
+  }
+
+  void _moverMenuCompleto(
+    MesaProvider mesaPv,
+    LineaPedido linea,
+    int mesaDestino,
+  ) {
+    for (final l in _lineasMenuAsociadas(mesaPv, linea)) {
+      mesaPv.modificarLinea(
+        l,
+        moverAMesa: mesaDestino,
+        marcarEditada: l.idLinea != null,
+      );
+    }
+  }
+
+  Future<void> _mostrarOpcionesMenuDelDia(
+    MesaProvider mesaPv,
+    LineaPedido cabecera, {
+    required bool puedeEditar,
+    required bool puedeElegirPostre,
+  }) async {
+    final accion = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.colorTarjeta,
+        title: Text(cabecera.nombreProducto),
+        content: const Text(
+          'El menú se mueve o elimina con todas sus líneas (platos, bebida y postre).',
+        ),
+        actions: [
+          if (puedeEditar)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'editar'),
+              child: const Text('Editar menú'),
+            ),
+          if (puedeElegirPostre)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'postre'),
+              child: const Text('Añadir postre'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'mover'),
+            child: const Text('Mover mesa'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'eliminar'),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppTheme.colorAgotado),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || accion == null) return;
+
+    switch (accion) {
+      case 'editar':
+        await _editarMenuDelDia(cabecera);
+        break;
+      case 'postre':
+        await _editarPostreMenuGuardado(cabecera);
+        break;
+      case 'mover':
+        final destino = await _pedirMesaDestino();
+        if (destino != null) {
+          _moverMenuCompleto(mesaPv, cabecera, destino);
+        }
+        break;
+      case 'eliminar':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppTheme.colorTarjeta,
+            title: const Text('Eliminar menú del día'),
+            content: const Text(
+              'Se quitarán la línea del menú y todos sus platos y bebida asociados.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(
+                  'Eliminar',
+                  style: TextStyle(color: AppTheme.colorAgotado),
+                ),
+              ),
+            ],
+          ),
+        );
+        if (ok == true) _eliminarMenuCompleto(mesaPv, cabecera);
+        break;
+    }
   }
 
   void _eliminarMenuCompleto(MesaProvider mesaPv, LineaPedido linea) {
@@ -1123,6 +1295,22 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
       menuDelDiaSeleccion: seleccion,
     ));
 
+    void addComponentePlato(int idProd, {required String puestoCocina}) {
+      final prod = catalogo.productoPorId(idProd);
+      if (prod == null) return;
+      mesaPv.agregarLinea(LineaPedido(
+        idProducto: idProd,
+        cantidad: 1,
+        comentario: MenuDelDiaSeleccion.comentarioDetalleCocina(puestoCocina),
+        nombreProducto: prod.nombreProductoPantalla,
+        opcionesElegidas: const {},
+        textoImprimirBarraCocina: prod.textoImprimirBarraCocina,
+        orden: 0,
+        sinCargo: true,
+        menuGrupoLocal: grupo,
+      ));
+    }
+
     void addComponente(int idProd) {
       final prod = catalogo.productoPorId(idProd);
       if (prod == null) return;
@@ -1140,10 +1328,10 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
 
     for (final id in primeros) {
-      addComponente(id);
+      addComponentePlato(id, puestoCocina: '1º');
     }
     for (final id in segundos) {
-      addComponente(id);
+      addComponentePlato(id, puestoCocina: '2º');
     }
     if (bebidaId != null) {
       if (bebidaDelMenu) {
@@ -1268,47 +1456,20 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
     }
 
     if (_esCabeceraMenuProducto(linea, menuPv, catalogo)) {
-      final cfg = menuPv.config;
       final grupo = linea.menuGrupoLocal;
-      if (grupo != null &&
+      final puedeEditar = grupo != null &&
           linea.menuDelDiaSeleccion != null &&
-          _grupoMenuSinGuardar(mesaPv, grupo)) {
-        await _editarMenuDelDia(linea);
-        return;
-      }
-      if (_puedeElegirPostreMenuGuardado(mesaPv, linea, cfg)) {
-        await _editarPostreMenuGuardado(linea);
-        return;
-      }
-      if (!linea.esNuevo &&
-          cfg != null &&
-          _menuYaTienePostre(mesaPv, linea, cfg)) {
-        return;
-      }
-      if (!linea.esNuevo) return;
-      final eliminar = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Eliminar menú del día'),
-          content: const Text(
-            'Se quitarán la línea del menú y todos sus platos y bebida asociados.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text(
-                'Eliminar',
-                style: TextStyle(color: AppTheme.colorAgotado),
-              ),
-            ),
-          ],
+          _grupoMenuSinGuardar(mesaPv, grupo);
+      await _mostrarOpcionesMenuDelDia(
+        mesaPv,
+        linea,
+        puedeEditar: puedeEditar,
+        puedeElegirPostre: _puedeElegirPostreMenuGuardado(
+          mesaPv,
+          linea,
+          menuPv.config,
         ),
       );
-      if (eliminar == true) _eliminarMenuCompleto(mesaPv, linea);
       return;
     }
 
@@ -1487,13 +1648,17 @@ class _HacerPedidoScreenState extends State<HacerPedidoScreen> {
 
   void onLineaDecrement(LineaPedido linea) {
     final mesaPv = context.read<MesaProvider>();
-    if (!_puedeEditar(mesaPv) || !linea.esNuevo) return;
+    if (!_puedeEditar(mesaPv)) return;
 
-    if (linea.esCabeceraMenuDelDia) {
+    final menuPv = context.read<MenuDelDiaProvider>();
+    final catalogo = context.read<CatalogoProvider>();
+    if (_esCabeceraMenuProducto(linea, menuPv, catalogo) ||
+        linea.esCabeceraMenuDelDia) {
       _eliminarMenuCompleto(mesaPv, linea);
       return;
     }
     if (linea.esDetalleMenuDelDia) return;
+    if (!linea.esNuevo) return;
 
     if (linea.cantidad > 1) {
       mesaPv.modificarLinea(linea, cantidad: linea.cantidad - 1);

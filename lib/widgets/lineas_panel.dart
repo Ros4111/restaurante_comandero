@@ -140,13 +140,7 @@ class _LineasPanelState extends State<LineasPanel> {
             seleccionada: _indiceSeleccionado == i,
             onTap: l.esDetalleMenuDelDia
                 ? null
-                : () {
-                    if (esCabeceraMenuLinea) {
-                      widget.onLineaTap(l);
-                    } else {
-                      _seleccionar(i);
-                    }
-                  },
+                : () => _seleccionar(i),
             onLongPress: l.esDetalleMenuDelDia
                 ? null
                 : () => widget.onLineaTap(l),
@@ -219,8 +213,9 @@ class _LineaTile extends StatelessWidget {
     final notaColor = esNota ? Colors.amber[300]! : color;
 
     final mostrarControles =
-        seleccionada && !soloLectura && !esDetalleMenu && !esCabeceraMenu;
-    final cantidadEnControles = mostrarControles && esNuevo;
+        seleccionada && !soloLectura && !esDetalleMenu;
+    final controlesSoloEliminarMenu = mostrarControles && esCabeceraMenu;
+    final cantidadEnControles = mostrarControles && esNuevo && !esCabeceraMenu;
     final mostrarCantidad =
         linea.cantidad > 1 && !cantidadEnControles;
 
@@ -288,7 +283,12 @@ class _LineaTile extends StatelessWidget {
                         fontSize: 16),
                   ),
                 ],
-                if (mostrarControles && esNuevo) ...[
+                if (controlesSoloEliminarMenu) ...[
+                  _CantidadBoton(
+                    icon: Icons.remove,
+                    onPressed: onDecrement,
+                  ),
+                ] else if (mostrarControles && esNuevo) ...[
                   _CantidadBoton(
                     icon: Icons.remove,
                     onPressed: onDecrement,

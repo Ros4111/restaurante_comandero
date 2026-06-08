@@ -298,10 +298,8 @@ class MenuDelDiaSeleccion {
       bebidaDelMenu: r['bebida_del_menu'] == true,
       postreId: r['postre_id'] as int?,
       comentarioExtra: (r['comentario'] as String?)?.trim() ?? '',
-      dosPrimeros: r['dos_primeros'] == true ||
-          (primeros.length >= 2 && segundos.isEmpty),
-      dosSegundos: r['dos_segundos'] == true ||
-          (segundos.length >= 2 && primeros.isEmpty),
+      dosPrimeros: false,
+      dosSegundos: false,
     );
   }
 
@@ -337,6 +335,10 @@ class MenuDelDiaSeleccion {
     }
     return c;
   }
+
+  /// Comentario en línea de detalle para cocina (1º / 2º del menú).
+  static String comentarioDetalleCocina(String puesto) =>
+      'Menú del día · $puesto';
 
   /// Texto visible en la línea del pedido (solo platos del menú).
   static String comentarioPlatosEnLinea(String comentario) {
