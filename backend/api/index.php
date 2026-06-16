@@ -12,9 +12,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once '/home/guardab/restaurante/config/database.php';
-require_once '/home/guardab/restaurante/lib/jwt.php';
-require_once '/home/guardab/restaurante/lib/helpers.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../lib/jwt.php';
+require_once __DIR__ . '/../lib/helpers.php';
 
 $uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
