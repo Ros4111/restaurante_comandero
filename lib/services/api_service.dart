@@ -390,9 +390,8 @@ class ApiService extends ChangeNotifier {
           'Cache-Control': 'no-cache',
         });
 
-        final resp = await _httpClient
-            .send(req)
-            .timeout(const Duration(seconds: 90));
+        final resp =
+            await _httpClient.send(req).timeout(const Duration(seconds: 90));
         if (resp.statusCode == 401) {
           _tokenExpirado = true;
           notifyListeners();
@@ -795,9 +794,8 @@ class ApiService extends ChangeNotifier {
           'Cache-Control': 'no-cache',
         });
 
-        final resp = await _httpClient
-            .send(req)
-            .timeout(const Duration(seconds: 90));
+        final resp =
+            await _httpClient.send(req).timeout(const Duration(seconds: 90));
         if (resp.statusCode == 401) {
           _tokenExpirado = true;
           notifyListeners();
