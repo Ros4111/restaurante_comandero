@@ -26,12 +26,14 @@ class ApiService extends ChangeNotifier {
   String _baseUrl = '';
   String? _token;
   bool _serverReachable = true;
+  String? _lastHealthError;
   bool _tokenExpirado = false;
   String? _terminalSerieCache;
   final http.Client _httpClient = http.Client();
 
   String get baseUrl => _baseUrl;
   bool get serverReachable => _serverReachable;
+  String? get lastHealthError => _lastHealthError;
   bool get hasToken => _token != null;
   bool get tokenExpirado => _tokenExpirado;
 
@@ -42,6 +44,7 @@ class ApiService extends ChangeNotifier {
 
   void setBaseUrl(String url) {
     _baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    _lastHealthError = null;
     notifyListeners();
   }
 
@@ -214,13 +217,25 @@ class ApiService extends ChangeNotifier {
 
   // ── Health check ───────────────────────────────────────────
   Future<bool> checkHealth() async {
+    _lastHealthError = null;
     try {
       final uri = Uri.parse('$_baseUrl/api/health');
       final res = await http.get(uri).timeout(const Duration(seconds: 5));
       final ok = res.statusCode == 200;
+      if (!ok) {
+        _lastHealthError = res.statusCode == 404
+            ? 'El servidor responde, pero no existe /api/health. Revisa que Apache redirija /api al backend.'
+            : 'El servidor responde con HTTP ${res.statusCode} al comprobar /api/health.';
+      }
       _setReachable(ok);
       return ok;
-    } catch (_) {
+    } on TimeoutException {
+      _lastHealthError =
+          'Tiempo de espera agotado al conectar con el servidor.';
+      _setReachable(false);
+      return false;
+    } catch (e) {
+      _lastHealthError = 'No se pudo conectar con el servidor: $e';
       _setReachable(false);
       return false;
     }

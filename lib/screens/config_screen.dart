@@ -220,7 +220,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     } else {
       if (mounted) {
         setState(() {
-          _error =
+          _error = api.lastHealthError ??
               'El servidor no responde.\nVerifica que la URL sea correcta, que estés en la misma red WiFi y que la Raspberry esté encendida.';
           _errorIcon = Icons.dns_outlined;
           _loading = false;
