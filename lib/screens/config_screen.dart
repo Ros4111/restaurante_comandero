@@ -1,5 +1,4 @@
 // lib/screens/config_screen.dart
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
+
+const String _defaultServerUrl = 'http://raspberrypi3';
 
 class ConfigScreen extends StatefulWidget {
   final bool showUrlConfig;
@@ -25,7 +26,7 @@ class ConfigScreen extends StatefulWidget {
 }
 
 class _ConfigScreenState extends State<ConfigScreen> {
-  final _ctrl = TextEditingController(text: 'https://restaurante.guardamar.es');
+  final _ctrl = TextEditingController(text: _defaultServerUrl);
   final List<_ImpresoraFormData> _impresoras = [];
   bool _loading = false;
   bool _loadingImpresoras = false;
@@ -72,20 +73,32 @@ class _ConfigScreenState extends State<ConfigScreen> {
     }
   }
 
-  // Comprueba si hay salida a internet intentando resolver un dominio conocido
-  Future<bool> _hayInternet() async {
-    try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(const Duration(seconds: 5));
-      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
-    } catch (_) {
-      return false;
+  bool _urlServidorValida(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return false;
+    if (uri.scheme == 'https') return true;
+    if (uri.scheme != 'http') return false;
+    return _esDestinoLocal(uri.host);
+  }
+
+  bool _esDestinoLocal(String host) {
+    final h = host.toLowerCase();
+    if (h == 'localhost' || h == 'raspberrypi3' || h.endsWith('.local')) {
+      return true;
     }
+    if (h.startsWith('192.168.') || h.startsWith('10.')) return true;
+
+    final parts = h.split('.');
+    if (parts.length != 4) return false;
+    final first = int.tryParse(parts[0]);
+    final second = int.tryParse(parts[1]);
+    if (first == null || second == null) return false;
+    return first == 172 && second >= 16 && second <= 31;
   }
 
   Future<void> _cargarImpresoras() async {
     final url = _ctrl.text.trim();
-    if (!url.startsWith('https://')) return;
+    if (!_urlServidorValida(url)) return;
     setState(() {
       _loadingImpresoras = true;
       _error = null;
@@ -122,9 +135,10 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
   Future<void> _guardar() async {
     final url = _ctrl.text.trim();
-    if (widget.showUrlConfig && !url.startsWith('https://')) {
+    if (widget.showUrlConfig && !_urlServidorValida(url)) {
       setState(() {
-        _error = 'La URL debe comenzar por https://';
+        _error =
+            'Usa una URL https:// o una URL local http://, por ejemplo http://raspberrypi3';
         _errorIcon = Icons.link_off;
       });
       return;
@@ -157,18 +171,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
       await prefs.setString(
           'bt_printer_tabla_codigos', _btTablaCtrl.text.trim().toUpperCase());
       await prefs.setString('bt_printer_papel', _btPapel);
-    }
-
-    // 1. Comprobar internet primero
-    final internet = await _hayInternet();
-    if (!mounted) return;
-    if (!internet) {
-      setState(() {
-        _error = 'Sin conexión a Internet. Comprueba el WiFi.';
-        _errorIcon = Icons.wifi_off;
-        _loading = false;
-      });
-      return;
     }
 
     final api = context.read<ApiService>();
@@ -219,7 +221,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       if (mounted) {
         setState(() {
           _error =
-              'Internet OK, pero el servidor no responde.\nVerifica que la URL sea correcta y el servidor esté encendido.';
+              'El servidor no responde.\nVerifica que la URL sea correcta, que estés en la misma red WiFi y que la Raspberry esté encendida.';
           _errorIcon = Icons.dns_outlined;
           _loading = false;
         });
@@ -403,12 +405,12 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     controller: _ctrl,
                     style: const TextStyle(fontSize: 18),
                     decoration: InputDecoration(
-                      labelText: 'URL del servidor (HTTPS)',
+                      labelText: 'URL del servidor',
                       filled: true,
                       fillColor: AppTheme.colorSuperficie,
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
-                      hintText: 'https://192.168.1.x',
+                      hintText: _defaultServerUrl,
                     ),
                     keyboardType: TextInputType.url,
                     autocorrect: false,
