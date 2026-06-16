@@ -70,7 +70,8 @@ function _totalesPedidoDesdeDetalles(PDO $db, int $idPedido): array {
 /** Textos de producto desde BD (el cliente no debe enviarlos al guardar). */
 function _textosProductoParaPedido(PDO $db, int $idProducto): array {
     $st = $db->prepare(
-        'SELECT nombre_producto_pantalla, texto_imprimir_cocina FROM productos WHERE id_producto = ?'
+        'SELECT nombre_producto_pantalla, texto_imprimir_cocina, texto_imprimir_cliente
+           FROM productos WHERE id_producto = ?'
     );
     $st->execute([$idProducto]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
@@ -79,14 +80,22 @@ function _textosProductoParaPedido(PDO $db, int $idProducto): array {
     }
     $nombre = trim((string)($row['nombre_producto_pantalla'] ?? ''));
     $txtCoc = trim((string)($row['texto_imprimir_cocina'] ?? ''));
+    $txtCli = trim((string)($row['texto_imprimir_cliente'] ?? ''));
     if ($nombre === '') {
         $nombre = 'Producto #' . $idProducto;
     }
     if ($txtCoc === '') {
         $txtCoc = $nombre;
     }
+    if ($txtCli === '') {
+        $txtCli = $txtCoc;
+    }
 
-    return ['nombre_producto_pantalla' => $nombre, 'texto_imprimir_cocina' => $txtCoc];
+    return [
+        'nombre_producto_pantalla' => $nombre,
+        'texto_imprimir_cocina' => $txtCoc,
+        'texto_imprimir_cliente' => $txtCli,
+    ];
 }
 
 // ── Obtener pedido completo ────────────────────────────────────
@@ -320,9 +329,10 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         $stIns = $db->prepare(
             'INSERT INTO pedido_detalles
              (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden,
+              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina,
+              texto_imprimir_cliente, orden,
               precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido, urgente)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?)'
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)'
         );
         foreach ($nuevas as $n) {
             $maxOrden++;
@@ -367,6 +377,7 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $txtProd['nombre_producto_pantalla'],
                 $opcionesJson,
                 $txtProd['texto_imprimir_cocina'],
+                $txtProd['texto_imprimir_cliente'],
                 $maxOrden,
                 $calc['precio'],
                 $calc['porcentaje_IVA'],
@@ -731,11 +742,12 @@ function endpointNotaLibre(array $payload, int $idPedido): void {
         $db->prepare(
             'INSERT INTO pedido_detalles
              (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina, orden,
+              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina,
+              texto_imprimir_cliente, orden,
               precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido)
-             VALUES (?, 0, 1, \'\', ?, NULL, ?, ?, ?, ?, ?, 0, NOW())'
+             VALUES (?, 0, 1, \'\', ?, NULL, ?, ?, ?, ?, ?, ?, 0, NOW())'
         )->execute([
-            $idPedido, $texto, $texto, $orden,
+            $idPedido, $texto, $texto, $texto, $orden,
             $precioSinIva, $pct, $importeIva,
         ]);
         $newId = (int)$db->lastInsertId();

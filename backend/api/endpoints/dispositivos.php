@@ -13,7 +13,7 @@ function endpointDispositivoPing(array $payload): void {
 
     $idDispositivo     = trim((string)($body['id_dispositivo']     ?? ''));
     $nombreDispositivo = trim((string)($body['nombre_dispositivo'] ?? ''));
-    $bateria           = isset($body['bateria']) ? (int)$body['bateria'] : null;
+    $bateria           = isset($body['bateria']) ? (int)$body['bateria'] : 0;
     $idUsuario         = (int)$payload['sub'];
 
     if ($idDispositivo === '') {
@@ -25,9 +25,10 @@ function endpointDispositivoPing(array $payload): void {
     if (strlen($nombreDispositivo) > 120) {
         $nombreDispositivo = substr($nombreDispositivo, 0, 120);
     }
-    if ($bateria !== null) {
-        $bateria = max(0, min(100, $bateria));
+    if ($nombreDispositivo === '') {
+        $nombreDispositivo = 'Dispositivo ' . substr($idDispositivo, 0, 40);
     }
+    $bateria = max(0, min(100, $bateria));
 
     try {
         $db = getDB();

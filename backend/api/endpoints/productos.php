@@ -16,9 +16,9 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
     }
     $ins = $db->prepare(
         'INSERT INTO productos_opciones
-         (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+         (id_producto, id_grupo_opciones, nombre_opcion, filtro, predeterminado, disponible, orden,
           suplemento_sin_iva)
-         VALUES (?,?,?,?,?,?,?)'
+         VALUES (?,?,?,?,?,?,?,?)'
     );
     $ordenAuto = [];
     $yaPredeterminado = [];
@@ -31,6 +31,7 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
         if ($idGr <= 0 || $nom === '') {
             continue;
         }
+        $filtro = trim((string)($o['filtro'] ?? ''));
         $pred = !empty($o['predeterminado']) ? 1 : 0;
         if ($pred && !empty($yaPredeterminado[$idGr])) {
             $pred = 0;
@@ -47,7 +48,7 @@ function productoGuardarOpciones(PDO $db, int $idProducto, mixed $raw): void {
             $ord = $ordenAuto[$idGr];
         }
         $supl = round((float)($o['suplemento_sin_iva'] ?? 0), 4);
-        $ins->execute([$idProducto, $idGr, $nom, $pred, $disp, $ord, $supl]);
+        $ins->execute([$idProducto, $idGr, $nom, $filtro, $pred, $disp, $ord, $supl]);
     }
 }
 
@@ -279,7 +280,8 @@ function endpointProductoCopiar(array $payload): void {
         $idNuevo = (int)$db->lastInsertId();
 
         $op = $db->prepare(
-            'SELECT id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+            'SELECT id_grupo_opciones, nombre_opcion, COALESCE(filtro, \'\') AS filtro,
+                    predeterminado, disponible, orden,
                     suplemento_sin_iva
                FROM productos_opciones WHERE id_producto = ?'
         );
@@ -289,15 +291,16 @@ function endpointProductoCopiar(array $payload): void {
         if ($opts) {
             $insOp = $db->prepare(
                 'INSERT INTO productos_opciones
-                 (id_producto, id_grupo_opciones, nombre_opcion, predeterminado, disponible, orden,
+                 (id_producto, id_grupo_opciones, nombre_opcion, filtro, predeterminado, disponible, orden,
                   suplemento_sin_iva)
-                 VALUES (?,?,?,?,?,?,?)'
+                 VALUES (?,?,?,?,?,?,?,?)'
             );
             foreach ($opts as $r) {
                 $insOp->execute([
                     $idNuevo,
                     (int)$r['id_grupo_opciones'],
                     $r['nombre_opcion'],
+                    (string)($r['filtro'] ?? ''),
                     (int)$r['predeterminado'],
                     (int)$r['disponible'],
                     (int)$r['orden'],
