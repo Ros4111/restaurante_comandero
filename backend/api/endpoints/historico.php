@@ -146,46 +146,36 @@ function endpointHistoricoMesaReabrir(array $payload, int $idPedido): void {
         }
 
         // Crear nuevo pedido activo (nuevo id_pedido auto-increment)
-        $db->prepare(
-            'INSERT INTO pedido_cabecera
-             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
-              hora_ultima_accion, nombre_cliente, base_imponible, importe_IVA,
-              estado_mesa, terminal_serie_bloqueo)
-             VALUES (?, ?, ?, NOW(), NOW(), ?, ?, ?, \'abierta\', ?)'
-        )->execute([
-            $idMesa,
-            $payload['sub'],
-            $payload['sub'],
-            $cab['nombre_cliente'] ?? '',
-            round($baseImp, 2),
-            round($impIVA, 2),
-            $terminalSerie,
+        $newId = insertarPedidoCabecera($db, [
+            'id_mesa'               => $idMesa,
+            'id_usuario_creacion'   => (int)$payload['sub'],
+            'id_usuario_bloqueo'    => (int)$payload['sub'],
+            'hora_bloqueo'          => 'now',
+            'nombre_cliente'        => (string)($cab['nombre_cliente'] ?? ''),
+            'base_imponible'        => round($baseImp, 2),
+            'importe_IVA'           => round($impIVA, 2),
+            'estado_mesa'           => 'abierta',
+            'terminal_serie_bloqueo'=> $terminalSerie,
         ]);
-        $newId = (int)$db->lastInsertId();
 
-        // Copiar líneas al nuevo pedido (nuevos id_linea, impreso=0 para re-enviar)
-        $stIns = $db->prepare(
-            'INSERT INTO pedido_detalles
-             (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina,
-              texto_imprimir_cliente, orden,
-              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())'
-        );
         foreach ($lineas as $l) {
-            $stIns->execute([
-                $newId,
-                (int)$l['id_producto'],
-                max(1, (int)$l['cantidad']),
-                $l['comentario'] ?? '',
-                $l['nombre_producto_pantalla'],
-                $l['opciones_elegidas'] ?? null,
-                $l['texto_imprimir_cocina'],
-                $l['texto_imprimir_cliente'] ?? '',
-                (int)$l['orden'],
-                $l['precio_sin_IVA'],
-                $l['porcentaje_IVA'],
-                $l['importe_IVA'],
+            insertarPedidoDetalle($db, [
+                'id_pedido'               => $newId,
+                'id_producto'             => (int)$l['id_producto'],
+                'cantidad'                => max(1, (int)$l['cantidad']),
+                'comentario'              => $l['comentario'] ?? '',
+                'nombre_producto_pantalla'=> $l['nombre_producto_pantalla'],
+                'opciones_elegidas'       => $l['opciones_elegidas'] ?? null,
+                'texto_imprimir_cocina'   => $l['texto_imprimir_cocina'],
+                'texto_imprimir_cliente'  => $l['texto_imprimir_cliente'] ?? '',
+                'orden'                   => (int)$l['orden'],
+                'precio_sin_IVA'          => $l['precio_sin_IVA'],
+                'porcentaje_IVA'          => $l['porcentaje_IVA'],
+                'importe_IVA'             => $l['importe_IVA'],
+                'servido'                 => $l['servido'] ?? '2000-01-01 00:00:00',
+                'hora_pedido'             => $l['hora_pedido'] ?? 'now',
+                'modificado_servicio'     => (int)($l['modificado_servicio'] ?? 0),
+                'urgente'                 => (int)($l['urgente'] ?? 0),
             ]);
         }
 

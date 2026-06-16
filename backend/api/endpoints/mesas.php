@@ -51,14 +51,15 @@ function endpointMesaAbrir(array $payload): void {
         ensureTokenPublicoPedidoCabecera($db);
         $tokenPublico = generarTokenPublicoPedido();
         liberarOtrasMesasBloqueadasDelTerminal($db, $terminalSerie, (int)$payload['sub']);
-        $st = $db->prepare(
-            'INSERT INTO pedido_cabecera
-             (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
-              hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo, token_publico)
-             VALUES (?, ?, ?, NOW(), NOW(), \'\', ?, ?)'
-        );
-        $st->execute([$mesa, $payload['sub'], $payload['sub'], $terminalSerie, $tokenPublico]);
-        $id = (int)$db->lastInsertId();
+        $id = insertarPedidoCabecera($db, [
+            'id_mesa'               => $mesa,
+            'id_usuario_creacion'   => (int)$payload['sub'],
+            'id_usuario_bloqueo'    => (int)$payload['sub'],
+            'hora_bloqueo'          => 'now',
+            'nombre_cliente'        => '',
+            'terminal_serie_bloqueo'=> $terminalSerie,
+            'token_publico'         => $tokenPublico,
+        ]);
         verificarBloqueoPersistido($db, $id, $terminalSerie);
         $db->commit();
         jsonOk([
@@ -332,13 +333,13 @@ function endpointMesaTraspasar(array $payload, int $idPedido): void {
         if ($destRow) {
             $idPedidoDestino = (int)$destRow['id_pedido'];
         } else {
-            $db->prepare(
-                'INSERT INTO pedido_cabecera
-                 (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
-                  hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo)
-                 VALUES (?, ?, 0, NULL, NOW(), ?, \'\')'
-            )->execute([$idMesaDestino, $payload['sub'], $cab['nombre_cliente'] ?? '']);
-            $idPedidoDestino = (int)$db->lastInsertId();
+            $idPedidoDestino = insertarPedidoCabecera($db, [
+                'id_mesa'             => $idMesaDestino,
+                'id_usuario_creacion' => (int)$payload['sub'],
+                'nombre_cliente'      => (string)($cab['nombre_cliente'] ?? ''),
+                'id_usuario_bloqueo'  => 0,
+                'hora_bloqueo'        => null,
+            ]);
         }
 
         // Calcular el orden máximo actual en la mesa destino

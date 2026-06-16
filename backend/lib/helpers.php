@@ -316,6 +316,113 @@ function incidenciaMesaNoEncontrada(
     );
 }
 
+/** Normaliza nombre_cliente del body; si no viene, conserva el valor actual. */
+function nombreClienteDesdeBody(array $body, string $actual = ''): string {
+    if (!array_key_exists('nombre_cliente', $body)) {
+        return $actual;
+    }
+    $nombre = trim((string)$body['nombre_cliente']);
+    if (strlen($nombre) > 120) {
+        $nombre = substr($nombre, 0, 120);
+    }
+    return $nombre;
+}
+
+/**
+ * INSERT en pedido_cabecera con todas las columnas NOT NULL explícitas.
+ * @param array<string, mixed> $d
+ */
+function insertarPedidoCabecera(PDO $db, array $d): int {
+    ensureTokenPublicoPedidoCabecera($db);
+
+    $nombreCliente = trim((string)($d['nombre_cliente'] ?? ''));
+    if (strlen($nombreCliente) > 120) {
+        $nombreCliente = substr($nombreCliente, 0, 120);
+    }
+    $terminalSerie = trim((string)($d['terminal_serie_bloqueo'] ?? ''));
+    if (strlen($terminalSerie) > 120) {
+        $terminalSerie = substr($terminalSerie, 0, 120);
+    }
+
+    $horaBloqueo = null;
+    if (array_key_exists('hora_bloqueo', $d)) {
+        $hb = $d['hora_bloqueo'];
+        if ($hb === 'now') {
+            $horaBloqueo = date('Y-m-d H:i:s');
+        } elseif ($hb !== null && $hb !== false) {
+            $horaBloqueo = (string)$hb;
+        }
+    }
+
+    $db->prepare(
+        'INSERT INTO pedido_cabecera
+         (id_mesa, hora_creacion, nombre_cliente, id_usuario_creacion,
+          terminal_serie_bloqueo, hora_ultima_accion, estado_mesa,
+          id_usuario_bloqueo, hora_bloqueo, base_imponible, importe_IVA, token_publico)
+         VALUES (?, NOW(), ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?)'
+    )->execute([
+        (int)($d['id_mesa'] ?? 0),
+        $nombreCliente,
+        (int)($d['id_usuario_creacion'] ?? 0),
+        $terminalSerie,
+        (string)($d['estado_mesa'] ?? 'abierta'),
+        (int)($d['id_usuario_bloqueo'] ?? 0),
+        $horaBloqueo,
+        round((float)($d['base_imponible'] ?? 0), 2),
+        round((float)($d['importe_IVA'] ?? 0), 2),
+        $d['token_publico'] ?? null,
+    ]);
+
+    return (int)$db->lastInsertId();
+}
+
+/**
+ * INSERT en pedido_detalles con todas las columnas NOT NULL explícitas.
+ * @param array<string, mixed> $d
+ */
+function insertarPedidoDetalle(PDO $db, array $d): int {
+    ensureUrgenteColumnPedidoDetalles($db);
+
+    $opciones = $d['opciones_elegidas'] ?? null;
+    if (is_array($opciones)) {
+        $opciones = json_encode($opciones, JSON_UNESCAPED_UNICODE);
+    }
+
+    $horaPedido = $d['hora_pedido'] ?? date('Y-m-d H:i:s');
+    if ($horaPedido === 'now') {
+        $horaPedido = date('Y-m-d H:i:s');
+    }
+
+    $db->prepare(
+        'INSERT INTO pedido_detalles
+         (id_pedido, id_producto, cantidad, comentario,
+          nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina,
+          texto_imprimir_cliente, orden, precio_sin_IVA, porcentaje_IVA, importe_IVA,
+          impreso, servido, hora_pedido, modificado_servicio, urgente)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    )->execute([
+        (int)($d['id_pedido'] ?? 0),
+        (int)($d['id_producto'] ?? 0),
+        max(1, (int)($d['cantidad'] ?? 1)),
+        trim((string)($d['comentario'] ?? '')),
+        (string)($d['nombre_producto_pantalla'] ?? ''),
+        $opciones,
+        (string)($d['texto_imprimir_cocina'] ?? ''),
+        (string)($d['texto_imprimir_cliente'] ?? ''),
+        (int)($d['orden'] ?? 0),
+        (float)($d['precio_sin_IVA'] ?? 0),
+        (float)($d['porcentaje_IVA'] ?? 0),
+        (float)($d['importe_IVA'] ?? 0),
+        (int)($d['impreso'] ?? 0),
+        (string)($d['servido'] ?? '2000-01-01 00:00:00'),
+        (string)$horaPedido,
+        (int)($d['modificado_servicio'] ?? 0),
+        !empty($d['urgente']) ? 1 : 0,
+    ]);
+
+    return (int)$db->lastInsertId();
+}
+
 function liberarBloqueoMesaTerminal(PDO $db, int $idPedido, string $terminalSerie): void {
     $db->prepare(
         'UPDATE pedido_cabecera

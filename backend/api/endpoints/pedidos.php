@@ -156,7 +156,6 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
     $lineas = $body['lineas'] ?? [];   // array de líneas enviadas por el móvil
     if (!is_array($lineas)) jsonError('Formato incorrecto');
     $terminalSerie = terminalSerieDesdeBody($body);
-    $nombreCliente = _nombreClienteDesdeBody($body);
 
     $db = getDB();
     ensureUrgenteColumnPedidoDetalles($db);
@@ -176,6 +175,8 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
 
         // Verificar que el usuario tiene el bloqueo vigente
         _verificarBloqueoGuardar($cab, $payload, $terminalSerie);
+
+        $nombreCliente = nombreClienteDesdeBody($body, (string)($cab['nombre_cliente'] ?? ''));
 
         $horaRef = trim((string)($body['hora_ultima_accion_ref'] ?? ''));
         if ($horaRef !== '') {
@@ -263,7 +264,12 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                     jsonError('La mesa destino es la misma que la de origen', 400);
                 }
                 verificarMesaDestinoNoBloqueadaPorOtro($db, $mesaDest, $terminalSerie, true);
-                $destPedidoId = _obtenerOCrearPedido($db, $mesaDest, $payload['sub']);
+                $destPedidoId = _obtenerOCrearPedido(
+                    $db,
+                    $mesaDest,
+                    $payload['sub'],
+                    (string)($cab['nombre_cliente'] ?? '')
+                );
                 $maxOrden = _maxOrden($db, $destPedidoId);
                 $db->prepare(
                     'UPDATE pedido_detalles SET id_pedido=?, orden=?, impreso=0
@@ -326,21 +332,9 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
         // ── Insertar nuevas ──────────────────────────────────
         $maxOrden   = _maxOrden($db, $idPedido);
         $horaPedido = !empty($nuevas) ? date('Y-m-d H:i:s') : null;
-        $stIns = $db->prepare(
-            'INSERT INTO pedido_detalles
-             (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina,
-              texto_imprimir_cliente, orden,
-              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido, urgente)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)'
-        );
         foreach ($nuevas as $n) {
             $maxOrden++;
-            $urgenteN = !empty($n['urgente']) ? 1 : 0;
             $opcionesDecoded = $n['opciones_elegidas'] ?? null;
-            $opcionesJson = $opcionesDecoded !== null
-                ? json_encode($opcionesDecoded, JSON_UNESCAPED_UNICODE)
-                : null;
             $idProdNuevo = (int)$n['id_producto'];
             $txtProd = _textosProductoParaPedido($db, $idProdNuevo);
             $sinCargo = !empty($n['sin_cargo']);
@@ -369,23 +363,22 @@ function endpointPedidoGuardar(array $payload, int $idPedido): void {
                 $calc['precio'] = round($calc['precio'] + $suplementoExtra, 6);
             }
             $impIVALinea = round($calc['precio'] * $calc['porcentaje_IVA'] / 100, 4);
-            $stIns->execute([
-                $idPedido,
-                $idProdNuevo,
-                max(1, (int)($n['cantidad'] ?? 1)),
-                trim($n['comentario'] ?? ''),
-                $txtProd['nombre_producto_pantalla'],
-                $opcionesJson,
-                $txtProd['texto_imprimir_cocina'],
-                $txtProd['texto_imprimir_cliente'],
-                $maxOrden,
-                $calc['precio'],
-                $calc['porcentaje_IVA'],
-                $impIVALinea,
-                $horaPedido,
-                $urgenteN,
+            $newId = insertarPedidoDetalle($db, [
+                'id_pedido'               => $idPedido,
+                'id_producto'             => $idProdNuevo,
+                'cantidad'                => max(1, (int)($n['cantidad'] ?? 1)),
+                'comentario'              => trim($n['comentario'] ?? ''),
+                'nombre_producto_pantalla'=> $txtProd['nombre_producto_pantalla'],
+                'opciones_elegidas'       => $opcionesDecoded,
+                'texto_imprimir_cocina'   => $txtProd['texto_imprimir_cocina'],
+                'texto_imprimir_cliente'  => $txtProd['texto_imprimir_cliente'],
+                'orden'                   => $maxOrden,
+                'precio_sin_IVA'          => $calc['precio'],
+                'porcentaje_IVA'          => $calc['porcentaje_IVA'],
+                'importe_IVA'             => $impIVALinea,
+                'hora_pedido'             => $horaPedido ?? date('Y-m-d H:i:s'),
+                'urgente'                 => !empty($n['urgente']),
             ]);
-            $newId = (int)$db->lastInsertId();
             $huboCambios = true;
 
             _registrarCambio($db, $payload['sub'], 'añadir', [
@@ -531,29 +524,24 @@ function _maxOrden(PDO $db, int $idPedido): int {
     return (int)($st->fetch()['m'] ?? 0);
 }
 
-function _obtenerOCrearPedido(PDO $db, int $idMesa, int $idUser): int {
+function _obtenerOCrearPedido(
+    PDO $db,
+    int $idMesa,
+    int $idUser,
+    string $nombreCliente = ''
+): int {
     $st = $db->prepare('SELECT id_pedido FROM pedido_cabecera WHERE id_mesa = ? LIMIT 1');
     $st->execute([$idMesa]);
     $row = $st->fetch();
     if ($row) return (int)$row['id_pedido'];
 
-    $db->prepare(
-        'INSERT INTO pedido_cabecera
-         (id_mesa, id_usuario_creacion, id_usuario_bloqueo, hora_bloqueo,
-          hora_ultima_accion, nombre_cliente, terminal_serie_bloqueo)
-         VALUES (?, ?, 0, NULL, NOW(), \'\', \'\')'
-    )->execute([$idMesa, $idUser]);
-    return (int)$db->lastInsertId();
-}
-
-function _nombreClienteDesdeBody(array $body): ?string {
-    if (!array_key_exists('nombre_cliente', $body)) return null;
-    $nombre = trim((string)$body['nombre_cliente']);
-    if ($nombre === '') return null;
-    if (strlen($nombre) > 120) {
-        $nombre = substr($nombre, 0, 120);
-    }
-    return $nombre;
+    return insertarPedidoCabecera($db, [
+        'id_mesa'             => $idMesa,
+        'id_usuario_creacion' => $idUser,
+        'nombre_cliente'      => $nombreCliente,
+        'id_usuario_bloqueo'  => 0,
+        'hora_bloqueo'        => null,
+    ]);
 }
 
 // ── Generadores ESC/POS (binario como string) ─────────────────
@@ -739,18 +727,19 @@ function endpointNotaLibre(array $payload, int $idPedido): void {
         $stMax->execute([$idPedido]);
         $orden = (int)($stMax->fetch()['m'] ?? 0) + 1;
 
-        $db->prepare(
-            'INSERT INTO pedido_detalles
-             (id_pedido, id_producto, cantidad, comentario,
-              nombre_producto_pantalla, opciones_elegidas, texto_imprimir_cocina,
-              texto_imprimir_cliente, orden,
-              precio_sin_IVA, porcentaje_IVA, importe_IVA, impreso, hora_pedido)
-             VALUES (?, 0, 1, \'\', ?, NULL, ?, ?, ?, ?, ?, ?, 0, NOW())'
-        )->execute([
-            $idPedido, $texto, $texto, $texto, $orden,
-            $precioSinIva, $pct, $importeIva,
+        $newId = insertarPedidoDetalle($db, [
+            'id_pedido'              => $idPedido,
+            'id_producto'            => 0,
+            'cantidad'               => 1,
+            'nombre_producto_pantalla'=> $texto,
+            'texto_imprimir_cocina'  => $texto,
+            'texto_imprimir_cliente' => $texto,
+            'orden'                  => $orden,
+            'precio_sin_IVA'         => $precioSinIva,
+            'porcentaje_IVA'         => $pct,
+            'importe_IVA'            => $importeIva,
+            'hora_pedido'            => 'now',
         ]);
-        $newId = (int)$db->lastInsertId();
 
         _registrarCambio($db, $payload['sub'], 'nota_libre', [
             'id_pedido' => $idPedido,

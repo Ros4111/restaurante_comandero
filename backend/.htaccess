@@ -2,7 +2,11 @@ Options +FollowSymLinks -MultiViews
 
 RewriteEngine On
 
-# Pasar Authorization a PHP (OVH shared hosting)
+# No redirigir phpMyAdmin
+RewriteRule ^myphpadmin(/.*)?$ - [L]
+RewriteRule ^phpmyadmin(/.*)?$ - [L]
+
+# Pasar Authorization a PHP
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
 RewriteCond %{REQUEST_FILENAME} !-f
